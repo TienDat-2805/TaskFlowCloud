@@ -1,24 +1,36 @@
 # TaskFlow Cloud
 
-?ng d?ng qu?n l? c?ng vi?c c? nh?n v?i React, TypeScript, Express v? MongoDB.
+Ứng dụng quản lý công việc cá nhân với giao diện tiếng Việt, giúp theo dõi kế hoạch, thời hạn và tiến độ hoàn thành.
 
-## Ch?c n?ng
+## Tính năng
 
-- ??ng k?, ??ng nh?p, ??ng xu?t v? kh?i ph?c phi?n ??ng nh?p.
-- T?o, xem, ch?nh s?a v? x?a c?ng vi?c.
-- ??nh d?u ho?n th?nh ho?c m? l?i c?ng vi?c.
-- ??t th?i h?n, m? t? v? m?c ?u ti?n.
-- L?c tr?ng th?i, t?m ki?m, s?p x?p v? ph?n trang.
-- Dashboard th?ng k? t?ng c?ng vi?c, ti?n ?? v? c?ng vi?c ??n h?n.
-- Giao di?n ti?ng Vi?t v?i b? c?c desktop/mobile.
+- Đăng ký, đăng nhập, đăng xuất và duy trì phiên đăng nhập.
+- Tạo, xem, chỉnh sửa và xóa công việc.
+- Đặt mô tả, thời hạn và mức ưu tiên cho từng công việc.
+- Đánh dấu hoàn thành hoặc mở lại công việc.
+- Lọc theo trạng thái, tìm kiếm theo tên, sắp xếp và phân trang.
+- Xem thống kê tổng quan, tỷ lệ hoàn thành và công việc đến hạn.
+- Quản lý dữ liệu riêng cho từng tài khoản.
 
-## Y?u c?u
+## Công nghệ
 
-- Node.js 24 LTS v? npm.
-- MongoDB local ho?c MongoDB Atlas.
-- Docker v? Docker Compose n?u ch?y b?ng container.
+| Thành phần | Công nghệ                                      |
+| ---------- | ---------------------------------------------- |
+| Frontend   | React, TypeScript, Vite, Tailwind CSS          |
+| Backend    | Node.js, Express, TypeScript                   |
+| Database   | MongoDB, Mongoose                              |
+| Xác thực   | Cookie session, express-session, connect-mongo |
+| Đóng gói   | Docker, Docker Compose, Nginx, Caddy           |
 
-## C?i ??t
+## Yêu cầu
+
+- **Node.js 24 LTS** và npm để chạy trực tiếp.
+- **MongoDB** đang hoạt động, hoặc một URI MongoDB Atlas hợp lệ.
+- **Docker và Docker Compose** nếu chạy bằng container.
+
+## Chạy trên máy cá nhân
+
+### 1. Tải mã nguồn và cài thư viện
 
 ```bash
 git clone https://github.com/TienDat-2805/TaskFlowCloud.git
@@ -26,124 +38,150 @@ cd TaskFlowCloud
 npm ci
 ```
 
-T?o c?u h?nh m?i tr??ng t? m?u:
+> Trên PowerShell, nếu npm.ps1 bị chặn, dùng npm.cmd thay cho npm trong các lệnh bên dưới.
+
+### 2. Tạo cấu hình môi trường
+
+PowerShell:
 
 ```powershell
 if (!(Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
-Tr?n Linux/macOS:
+Linux hoặc macOS:
 
 ```bash
 test -f .env || cp .env.example .env
 ```
 
-?i?n URI database v?o MONGODB_URI v? t?o SESSION_SECRET ng?u nhi?n:
+Mở `.env` và cấu hình:
+
+- `MONGODB_URI`: URI của MongoDB local hoặc Atlas. MongoDB local phải được khởi động trước.
+- `SESSION_SECRET`: chuỗi ngẫu nhiên có ít nhất 32 ký tự.
+- `CLIENT_ORIGIN`: giữ `http://localhost:5173` khi chạy frontend với cấu hình mặc định.
+
+Tạo giá trị cho `SESSION_SECRET` bằng:
 
 ```bash
 node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))"
 ```
 
-??t gi? tr? v?a t?o v?o SESSION_SECRET, sau ?? ch?y:
+Giữ mật khẩu, URI thật và secret trong môi trường riêng; không đưa chúng vào Git hoặc mã frontend. Với Atlas, cần cấp quyền database và cấu hình IP access list cho máy chạy backend.
+
+### 3. Khởi động ứng dụng
 
 ```bash
 npm run db:check
 npm run dev
 ```
 
-M? **http://localhost:5173** v? ??ng k? t?i kho?n ?? s? d?ng. D?ng ??ng origin ?? c?u h?nh trong CLIENT_ORIGIN. T?i kho?n database ??c l?p v?i t?i kho?n ??ng nh?p ?ng d?ng.
+Truy cập **[http://localhost:5173](http://localhost:5173)**, chọn **Đăng ký** để tạo tài khoản và bắt đầu sử dụng.
 
-N?u PowerShell ch?n npm.ps1, d?ng npm.cmd thay cho npm.
+Frontend chuyển các yêu cầu `/api` tới backend ở cổng `4000`. Dùng đúng địa chỉ `localhost:5173` để khớp với `CLIENT_ORIGIN`. Tài khoản đăng nhập ứng dụng độc lập với tài khoản database.
 
-## Bi?n m?i tr??ng
+Dừng ứng dụng bằng `Ctrl+C`.
 
-| Bi?n                          | M?c ??ch                                                    |
-| ----------------------------- | ----------------------------------------------------------- |
-| NODE_ENV                      | development, test ho?c production                           |
-| PORT                          | C?ng API; m?c ??nh 4000                                     |
-| MONGODB_URI                   | URI k?t n?i MongoDB                                         |
-| SESSION_SECRET                | Chu?i ng?u nhi?n t?i thi?u 32 k? t?                         |
-| COOKIE_SECURE                 | true khi d?ng HTTPS                                         |
-| CLIENT_ORIGIN                 | Origin frontend; local l? http://localhost:5173             |
-| TRUST_PROXY                   | 0 khi ch?y tr?c ti?p; 2 v?i Caddy ? Nginx ? Express         |
-| LOG_LEVEL                     | M?c log c?a API                                             |
-| MONGODB_DNS_SERVERS           | T?y ch?n: danh s?ch ??a ch? IP DNS, ph?n c?ch b?ng d?u ph?y |
-| SEED_EMAIL                    | Email t?i kho?n m?u                                         |
-| SEED_PASSWORD                 | M?t kh?u t?i kho?n m?u                                      |
-| APP_DOMAIN                    | Domain cho c?u h?nh production                              |
-| BACKEND_IMAGE, FRONTEND_IMAGE | Image v? tag tri?n khai                                     |
+## Chạy bằng Docker
 
-Gi? URI, m?t kh?u v? secret ngo?i Git. Kh?ng ??t th?ng tin database trong bi?n frontend. Khi d?ng Atlas, c?u h?nh quy?n database user v? IP access list ph? h?p v?i m?y ch?y API.
+Docker Compose development khởi chạy frontend, backend và **MongoDB local với volume riêng**. Cấu hình này dùng MongoDB trong container thay cho URI Atlas.
 
-## D? li?u m?u
-
-C?u h?nh SEED_EMAIL v? SEED_PASSWORD, sau ??:
-
-```bash
-npm run seed
-```
-
-M?t kh?u m?u c?n ?t nh?t 12 k? t? v? t?i ?a 72 byte UTF-8. Seed t?o 5 c?ng vi?c m?u, gi? nguy?n c?ng vi?c v? m?t kh?u ?? t?n t?i.
-
-Khi server ?ang ch?y, c? th? ki?m tra lu?ng API b?ng:
-
-```bash
-npm run smoke
-```
-
-L?nh d?ng t?i kho?n m?u ?? ??ng nh?p, thao t?c tr?n m?t c?ng vi?c t?m r?i ??ng xu?t. C? th? ??t SMOKE_BASE_URL ?? ch?n ??a ch? server.
-
-## Docker
-
-Ch?y stack development v?i MongoDB local v? volume ri?ng:
+Chuẩn bị `.env` và `SESSION_SECRET` như hướng dẫn trên. Dừng các tiến trình khác đang dùng cổng `5173`, sau đó chạy:
 
 ```bash
 docker compose -f compose.dev.yml up --build -d
-docker compose -f compose.dev.yml exec backend npm run seed -w backend
+```
+
+Truy cập **[http://localhost:5173](http://localhost:5173)**.
+
+Xem trạng thái và log:
+
+```bash
+docker compose -f compose.dev.yml ps
 docker compose -f compose.dev.yml logs -f backend
 ```
 
-Truy c?p **http://localhost:5173**. D?ng stack b?ng:
+Dừng các container:
 
 ```bash
 docker compose -f compose.dev.yml down
 ```
 
-L?nh down gi? d? li?u trong volume. Th?m -v s? x?a volume database local.
+Lệnh `down` giữ dữ liệu trong volume. Chỉ thêm `-v` khi muốn xóa database local.
 
-Build image production:
+## Dữ liệu mẫu
 
-```bash
-docker build -f backend/Dockerfile -t taskflow/backend:0.1.0 .
-docker build -f frontend/Dockerfile -t taskflow/frontend:0.1.0 .
-```
+Đặt `SEED_EMAIL` và `SEED_PASSWORD` trong `.env`. Mật khẩu mẫu cần ít nhất 12 ký tự và tối đa 72 byte UTF-8.
 
-?? ch?y production, c?u h?nh APP_DOMAIN, MONGODB_URI v? SESSION_SECRET trong m?i tr??ng tri?n khai, tr? domain t?i m?y ch? v? m? c?ng 80/443:
+Khi chạy trực tiếp:
 
 ```bash
-docker compose -f compose.prod.yml config --quiet
-docker compose -f compose.prod.yml up --build -d
+npm run seed
 ```
 
-Production d?ng Caddy cho HTTPS, Nginx ph?c v? frontend v? proxy t?i API. API v? MongoDB kh?ng ???c publish ra Internet. N?u d?ng file m?i tr??ng ri?ng, th?m --env-file tr??c -f trong l?nh Compose.
+Khi chạy bằng Docker Compose:
 
-## Ki?m th? v? build
+```bash
+docker compose -f compose.dev.yml exec backend npm run seed -w backend
+```
+
+Script tạo tài khoản và 5 công việc mẫu, không thay đổi mật khẩu hoặc công việc đã tồn tại. Đăng nhập bằng thông tin tài khoản mẫu đã cấu hình.
+
+## Kiểm thử và build
 
 ```bash
 npm run check
 npm run format:check
 ```
 
-npm run check ch?y lint, TypeScript, ki?m th? backend/frontend v? build. Backend test d?ng MongoDB t?m ??c l?p; frontend test d?ng jsdom v?i HTTP gi? l?p.
+`npm run check` chạy lint, kiểm tra TypeScript, kiểm thử backend/frontend và build. Backend test dùng MongoDB tạm độc lập; lần chạy đầu cần mạng để tải binary. Frontend test dùng jsdom với HTTP giả lập.
 
-C?c l?nh b? sung:
+Kiểm tra luồng API khi ứng dụng đang chạy và đã có dữ liệu mẫu:
 
-| L?nh                       | M?c ??ch              |
-| -------------------------- | --------------------- |
-| npm run build              | Build hai workspace   |
-| npm test                   | Ch?y ki?m th?         |
-| npm run format             | ??nh d?ng m? ngu?n    |
-| npm run indexes -w backend | B? sung index MongoDB |
-| npm run start -w backend   | Ch?y API ?? build     |
+```bash
+npm run smoke
+```
 
-Endpoint **/health** tr? 200 khi API k?t n?i ???c database v? 503 khi database kh?ng s?n s?ng.
+Smoke test đăng nhập bằng tài khoản mẫu, tạo/sửa/xóa một công việc tạm rồi đăng xuất.
+
+| Lệnh                         | Chức năng                                         |
+| ---------------------------- | ------------------------------------------------- |
+| `npm run dev`                | Chạy frontend và backend trong chế độ development |
+| `npm run build`              | Build cả hai workspace                            |
+| `npm test`                   | Chạy kiểm thử                                     |
+| `npm run lint`               | Kiểm tra mã nguồn bằng ESLint                     |
+| `npm run typecheck`          | Kiểm tra kiểu dữ liệu TypeScript                  |
+| `npm run format`             | Định dạng mã nguồn                                |
+| `npm run db:check`           | Kiểm tra kết nối MongoDB                          |
+| `npm run indexes -w backend` | Bổ sung index MongoDB                             |
+| `npm run start -w backend`   | Chạy backend sau khi build                        |
+
+## Triển khai production
+
+Cấu hình `APP_DOMAIN`, `MONGODB_URI` và `SESSION_SECRET` trong file môi trường riêng, ví dụ `.env.production`. Domain cần trỏ tới máy chủ và cổng `80/443` phải sẵn sàng.
+
+```bash
+docker compose --env-file .env.production -f compose.prod.yml config --quiet
+docker compose --env-file .env.production -f compose.prod.yml up --build -d
+```
+
+Caddy xử lý HTTPS; Nginx phục vụ frontend và chuyển tiếp API tới backend. Chỉ reverse proxy công khai cổng mạng. Cấu hình production bật secure cookie và kiểm tra origin HTTPS.
+
+## Tham khảo cấu hình
+
+| Biến                              | Ý nghĩa                                                 |
+| --------------------------------- | ------------------------------------------------------- |
+| `NODE_ENV`                        | `development`, `test` hoặc `production`                 |
+| `PORT`                            | Cổng backend, mặc định `4000`                           |
+| `MONGODB_URI`                     | Chuỗi kết nối MongoDB                                   |
+| `SESSION_SECRET`                  | Secret ngẫu nhiên, tối thiểu 32 ký tự                   |
+| `CLIENT_ORIGIN`                   | Origin frontend được phép gửi yêu cầu ghi               |
+| `COOKIE_SECURE`                   | `true` khi dùng HTTPS                                   |
+| `TRUST_PROXY`                     | `0` khi chạy trực tiếp; `2` với Caddy → Nginx → Express |
+| `LOG_LEVEL`                       | Mức log của backend                                     |
+| `MONGODB_DNS_SERVERS`             | Tùy chọn: danh sách IP DNS phân cách bằng dấu phẩy      |
+| `SEED_EMAIL`, `SEED_PASSWORD`     | Thông tin tài khoản mẫu                                 |
+| `APP_DOMAIN`                      | Domain dùng cho production                              |
+| `BACKEND_IMAGE`, `FRONTEND_IMAGE` | Image và tag triển khai                                 |
+| `SMOKE_BASE_URL`                  | Tùy chọn: URL dùng cho smoke test                       |
+
+Endpoint `/health` trả **200** khi kết nối database hoạt động và **503** khi database không sẵn sàng.
