@@ -1,0 +1,55 @@
+name: taskflow-cloud
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN to your domain}
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+    networks: [edge, app]
+  frontend:
+    image: ${FRONTEND_IMAGE:-taskflow/frontend:local}
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      target: production
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [app]
+  backend:
+    image: ${BACKEND_IMAGE:-taskflow/backend:local}
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: production
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      MONGODB_URI: ${MONGODB_URI:?Set MONGODB_URI outside Git}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET outside Git}
+      COOKIE_SECURE: 'true'
+      CLIENT_ORIGIN: https://${APP_DOMAIN}
+      TRUST_PROXY: 2
+      SEED_EMAIL: ${SEED_EMAIL:-}
+      SEED_PASSWORD: ${SEED_PASSWORD:-}
+      LOG_LEVEL: info
+      MONGODB_DNS_SERVERS: ${MONGODB_DNS_SERVERS:-}
+    networks: [app, egress]
+volumes:
+  caddy_data:
+  caddy_config:
+networks:
+  edge:
+  app:
+    internal: true
+  egress:

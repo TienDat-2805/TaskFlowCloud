@@ -1,0 +1,17 @@
+*
+!package.json
+!package-lock.json
+!backend/
+!backend/**
+!frontend/
+!frontend/**
+**/node_modules
+**/dist
+**/coverage
+**/.env
+**/.env.*
+**/*.log
+**/*.pem
+**/*.key
+**/*.bak
+**/*.backup

@@ -1,0 +1,55 @@
+name: taskflow-dev
+services:
+  mongo:
+    image: mongo:8
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [database]
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: development
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      MONGODB_URI: mongodb://mongo:27017/taskflow_dev
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
+      COOKIE_SECURE: 'false'
+      CLIENT_ORIGIN: http://localhost:5173
+      TRUST_PROXY: 0
+      SEED_EMAIL: ${SEED_EMAIL:-demo@example.com}
+      SEED_PASSWORD: ${SEED_PASSWORD:-}
+    volumes:
+      - ./backend/src:/app/backend/src
+      - ./backend/scripts:/app/backend/scripts
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks: [app, database]
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      target: development
+    environment:
+      VITE_HOST: 0.0.0.0
+      API_PROXY_TARGET: http://backend:4000
+    ports:
+      - '127.0.0.1:5173:5173'
+    volumes:
+      - ./frontend/src:/app/frontend/src
+    depends_on: [backend]
+    networks: [app]
+volumes:
+  mongo_data:
+networks:
+  app:
+  database:
+    internal: true
