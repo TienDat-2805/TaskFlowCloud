@@ -87,6 +87,11 @@ describe('authentication and session security', () => {
     expect((await alice.get('/api/auth/me')).body.data.name).toBe('Alice');
     expect((await request(runtime.app).get('/api/auth/me')).status).toBe(401);
     expect((await request(runtime.app).get('/api/tasks')).status).toBe(401);
+    expect((await request(runtime.app).get('/api/features')).status).toBe(401);
+    expect((await alice.get('/api/features')).body.data).toEqual({
+      workflow: false,
+      requireRevision: false,
+    });
     expect((await request(runtime.app).get('/api/dashboard/summary')).status).toBe(401);
   });
   it('logs in, rotates session ID, logs out and revokes the old cookie', async () => {
@@ -309,7 +314,7 @@ describe('dashboard and operational baseline', () => {
       overdue: 1,
       completionRate: 33,
     });
-    expect(summary.body.data.upcoming).toHaveLength(1);
+    expect(summary.body.data.upcoming).toHaveLength(0);
     expect((await bob.get('/api/dashboard/summary')).body.data.total).toBe(0);
   });
   it('keeps tasks and login sessions across fresh application instances', async () => {

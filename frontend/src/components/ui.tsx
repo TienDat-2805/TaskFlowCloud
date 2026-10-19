@@ -1,11 +1,12 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, CSSProperties } from 'react';
+import { useState } from 'react';
 import { Slot } from '@radix-ui/react-slot';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../lib/cn';
 import { AlertCircle, CheckCheck, LoaderCircle, Plus, RefreshCw, X } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import type { TaskPriority, TaskStatus } from '../types';
 
 const buttonVariants = cva('button', {
@@ -69,8 +70,8 @@ export function PriorityBadge({ priority }: { priority: TaskPriority }) {
 }
 export function StatusBadge({ status }: { status: TaskStatus }) {
   return (
-    <span className={cn('badge', status === 'completed' ? 'status-completed' : 'status-pending')}>
-      {status === 'completed' ? 'Đã hoàn thành' : 'Chưa hoàn thành'}
+    <span className={cn('badge', 'status-' + status)}>
+      {{ pending: 'Cần làm', in_progress: 'Đang làm', completed: 'Hoàn thành' }[status]}
     </span>
   );
 }
@@ -105,6 +106,7 @@ export function EmptyState({
   filtered?: boolean;
   reset?: () => void;
 }) {
+  const location = useLocation();
   return (
     <div className="feedback-state">
       <div className="feedback-icon">
@@ -122,7 +124,7 @@ export function EmptyState({
         </Button>
       ) : (
         <Button asChild>
-          <Link to="/tasks/new">
+          <Link to="/tasks/new" state={{ backgroundLocation: location }}>
             <Plus size={17} /> Tạo công việc đầu tiên
           </Link>
         </Button>
@@ -135,12 +137,19 @@ export function FormDialog({
   description,
   children,
   onClose,
+  contentClassName,
+  style,
 }: {
   title: string;
   description: string;
   children: ReactNode;
   onClose: () => void;
+  contentClassName?: string;
+  style?: CSSProperties;
 }) {
+  const [returnFocus] = useState(() =>
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
   return (
     <DialogPrimitive.Root
       open
@@ -150,7 +159,14 @@ export function FormDialog({
     >
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="dialog-overlay" />
-        <DialogPrimitive.Content className="dialog-content">
+        <DialogPrimitive.Content
+          className={cn('dialog-content', contentClassName)}
+          style={style}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            if (returnFocus?.isConnected) returnFocus.focus();
+          }}
+        >
           <div className="dialog-heading">
             <div>
               <DialogPrimitive.Title>{title}</DialogPrimitive.Title>

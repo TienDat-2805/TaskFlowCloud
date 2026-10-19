@@ -24,6 +24,8 @@ services:
       COOKIE_SECURE: 'false'
       CLIENT_ORIGIN: http://localhost:5173
       TRUST_PROXY: 0
+      TASKFLOW_V02_ENABLED: ${TASKFLOW_V02_ENABLED:-false}
+      REQUIRE_TASK_REVISION: ${REQUIRE_TASK_REVISION:-false}
       SEED_EMAIL: ${SEED_EMAIL:-demo@example.com}
       SEED_PASSWORD: ${SEED_PASSWORD:-}
     volumes:

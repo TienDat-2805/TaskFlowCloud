@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from '../app/App';
 import type { Task } from '../types';
@@ -24,21 +24,41 @@ const originalTask: Task = {
   createdAt: '2026-10-01T00:00:00Z',
   updatedAt: '2026-10-01T00:00:00Z',
   isOverdue: false,
+  startedAt: null,
+  dueMode: 'none',
+  dueDate: null,
+  dueTimeZone: null,
+  dueBucket: 'no_due',
+  revision: 0,
 };
 type Handler = (url: string, init?: RequestInit) => Response | Promise<Response>;
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 function mount(route: string, handler: Handler) {
-  const fetch = vi.fn((url: string, init?: RequestInit) => handler(String(url), init));
+  // Node's Request rejects jsdom's AbortSignal; HTTP is mocked in this suite.
+  const NativeRequest = globalThis.Request;
+  vi.stubGlobal(
+    'Request',
+    class extends NativeRequest {
+      constructor(input: RequestInfo | URL, init?: RequestInit) {
+        super(input, { ...init, signal: undefined });
+      }
+    },
+  );
+  const fetch = vi.fn((url: string, init?: RequestInit) =>
+    url === '/api/features'
+      ? json({ data: { workflow: true, requireRevision: true } })
+      : handler(String(url), init),
+  );
   vi.stubGlobal('fetch', fetch);
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
   });
   render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[route]}>
-        <App />
-      </MemoryRouter>
+      <RouterProvider
+        router={createMemoryRouter([{ path: '*', element: <App /> }], { initialEntries: [route] })}
+      />
     </QueryClientProvider>,
   );
   return { fetch, client, interaction: userEvent.setup() };
@@ -71,7 +91,7 @@ describe('frontend application flows (mock HTTP, no live Atlas writes)', () => {
         loggedIn = true;
         return json({ data: user });
       }
-      if (url === '/api/dashboard/summary')
+      if (url.startsWith('/api/dashboard/summary'))
         return json({
           data: {
             total: 3,
@@ -93,8 +113,8 @@ describe('frontend application flows (mock HTTP, no live Atlas writes)', () => {
       'Email hoặc mật khẩu không đúng.',
     );
     await interaction.click(screen.getByRole('button', { name: 'Đăng nhập' }));
-    expect(await screen.findByRole('heading', { name: /Xin chào, An/ })).toBeTruthy();
-    expect(screen.getByText('33%')).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Điều gì cần xử lý hôm nay?' })).toBeTruthy();
+    expect(screen.getByText(/33%/)).toBeTruthy();
   });
   it('validates the create form and sends trimmed data only after a valid submit', async () => {
     let tasks: Task[] = [];
@@ -113,7 +133,7 @@ describe('frontend application flows (mock HTTP, no live Atlas writes)', () => {
         });
       return json({}, 404);
     });
-    await screen.findByRole('dialog', { name: 'Tạo công việc mới' });
+    await screen.findByRole('heading', { name: 'Tạo công việc mới' });
     await interaction.click(screen.getByRole('button', { name: 'Tạo công việc' }));
     expect(await screen.findByText('Vui lòng nhập tên công việc.')).toBeTruthy();
     expect(created).toBeUndefined();
@@ -122,7 +142,7 @@ describe('frontend application flows (mock HTTP, no live Atlas writes)', () => {
     await waitFor(() =>
       expect(created).toMatchObject({
         title: 'Công việc thật',
-        dueAt: null,
+        due: { mode: 'none' },
         priority: 'medium',
         status: 'pending',
       }),
@@ -144,13 +164,13 @@ describe('frontend application flows (mock HTTP, no live Atlas writes)', () => {
       return json({}, 404);
     });
     await screen.findByRole('heading', { name: originalTask.title });
-    await interaction.click(screen.getByRole('button', { name: 'Xóa' }));
-    await screen.findByRole('alertdialog', { name: 'Xóa công việc?' });
+    await interaction.click(screen.getByRole('button', { name: 'Chuyển vào thùng rác' }));
+    await screen.findByRole('alertdialog', { name: 'Chuyển vào thùng rác?' });
     expect(deleted).toBe(false);
     await interaction.click(screen.getByRole('button', { name: 'Hủy' }));
     expect(deleted).toBe(false);
-    await interaction.click(screen.getByRole('button', { name: 'Xóa' }));
-    await interaction.click(screen.getByRole('button', { name: 'Xóa công việc' }));
+    await interaction.click(screen.getByRole('button', { name: 'Chuyển vào thùng rác' }));
+    await interaction.click(screen.getByRole('alertdialog').querySelector('button.button-danger')!);
     await waitFor(() => expect(deleted).toBe(true));
     expect(await screen.findByRole('heading', { name: 'Công việc của tôi' })).toBeTruthy();
   });

@@ -39,6 +39,7 @@
 !/frontend/tsconfig.json
 !/frontend/vite.config.ts
 !/frontend/vitest.config.ts
+!/frontend/playwright.config.ts
 !/frontend/index.html
 !/frontend/nginx.conf
 !/frontend/src/

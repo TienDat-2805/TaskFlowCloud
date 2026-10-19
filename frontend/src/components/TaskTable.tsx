@@ -1,22 +1,112 @@
-import { CalendarDays, ChevronRight, Pencil } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { useState } from 'react';
+import { MoreHorizontal, Play, Pause } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import type { Task } from '../types';
-import { formatDate } from '../lib/date';
+import { attentionReason, deadlineLabel } from '../lib/workflow';
 import { PriorityBadge, StatusBadge } from './ui';
-import { cn } from '../lib/cn';
-import { useTaskMutation } from '../features/tasks';
-export function TaskTable({ tasks }: { tasks: Task[] }) {
+import { useTaskMutation, refreshTasks } from '../features/tasks';
+import { ConflictNotice, QuickEdit } from './WorkflowControls';
+import { useWorkflow } from '../features/workflow';
+function TaskRow({ task, attention }: { task: Task; attention: boolean }) {
   const mutation = useTaskMutation();
+  const [editing, setEditing] = useState<{ top: number; left: number } | null>(null);
+  const { enabled } = useWorkflow();
+  const location = useLocation();
+  const client = useQueryClient();
   return (
-    <div className="task-table-wrap">
+    <tr className={task.status === 'completed' ? 'task-completed' : ''}>
+      <td className="check-cell">
+        <input
+          type="checkbox"
+          className="task-checkbox"
+          aria-label={'Hoàn thành: ' + task.title}
+          checked={task.status === 'completed'}
+          disabled={mutation.isPending}
+          onChange={(e) =>
+            mutation.mutate({
+              task,
+              values: { status: e.target.checked ? 'completed' : 'pending' },
+            })
+          }
+        />
+      </td>
+      <td className="task-name-cell">
+        <Link
+          to={'/tasks/' + task.id}
+          state={{ returnTo: location.pathname + location.search }}
+          className="task-name"
+        >
+          {task.title}
+        </Link>
+        <p>{attention ? attentionReason(task) : deadlineLabel(task)}</p>
+        <div className="task-mobile-meta">
+          <PriorityBadge priority={task.priority} />
+          <StatusBadge status={task.status} />
+        </div>
+        <ConflictNotice
+          error={mutation.error}
+          reload={() => {
+            void refreshTasks(client);
+          }}
+        />
+      </td>
+      <td className={'desktop-cell date-cell' + (task.isOverdue ? ' overdue-text' : '')}>
+        {deadlineLabel(task)}
+        {task.isOverdue && <small>Quá hạn</small>}
+      </td>
+      <td className="desktop-cell">
+        <PriorityBadge priority={task.priority} />
+      </td>
+      <td className="desktop-cell">
+        <StatusBadge status={task.status} />
+      </td>
+      <td className="row-action">
+        {enabled && task.status !== 'completed' && (
+          <button
+            className="icon-button start-action"
+            aria-label={(task.status === 'in_progress' ? 'Tạm dừng: ' : 'Bắt đầu: ') + task.title}
+            disabled={mutation.isPending}
+            onClick={() =>
+              mutation.mutate({
+                task,
+                values: { status: task.status === 'in_progress' ? 'pending' : 'in_progress' },
+              })
+            }
+          >
+            {task.status === 'in_progress' ? <Pause size={15} /> : <Play size={15} />}
+          </button>
+        )}
+        <button
+          className="icon-button"
+          aria-label={'Sửa nhanh: ' + task.title}
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            setEditing({
+              top: Math.max(12, Math.min(rect.bottom + 8, window.innerHeight - 600)),
+              left: Math.max(12, rect.right - 400),
+            });
+          }}
+          disabled={mutation.isPending}
+        >
+          <MoreHorizontal size={18} />
+        </button>
+        {editing && <QuickEdit task={task} anchor={editing} onClose={() => setEditing(null)} />}
+      </td>
+    </tr>
+  );
+}
+export function TaskTable({ tasks, attention = false }: { tasks: Task[]; attention?: boolean }) {
+  return (
+    <div className={'task-table-wrap' + (attention ? ' attention-table' : '')}>
       <table className="task-table">
         <thead>
           <tr>
             <th className="check-cell">
               <span className="sr-only">Hoàn thành</span>
             </th>
-            <th>Tên công việc</th>
-            <th>Thời hạn</th>
+            <th>Công việc</th>
+            <th>Hạn chót</th>
             <th>Ưu tiên</th>
             <th>Trạng thái</th>
             <th>
@@ -26,60 +116,7 @@ export function TaskTable({ tasks }: { tasks: Task[] }) {
         </thead>
         <tbody>
           {tasks.map((task) => (
-            <tr key={task.id} className={cn(task.status === 'completed' && 'task-completed')}>
-              <td className="check-cell">
-                <input
-                  type="checkbox"
-                  className="task-checkbox"
-                  aria-label={'Hoàn thành: ' + task.title}
-                  checked={task.status === 'completed'}
-                  disabled={mutation.isPending}
-                  onChange={(event) =>
-                    mutation.mutate({
-                      id: task.id,
-                      values: { status: event.target.checked ? 'completed' : 'pending' },
-                    })
-                  }
-                />
-              </td>
-              <td className="task-name-cell">
-                <Link to={'/tasks/' + task.id} className="task-name">
-                  {task.title}
-                  <ChevronRight size={15} className="mobile-chevron" />
-                </Link>
-                <p>{task.description || 'Chưa có mô tả'}</p>
-                <div className="task-mobile-meta">
-                  <PriorityBadge priority={task.priority} />
-                  <span className={cn('date-label', task.isOverdue && 'overdue-text')}>
-                    <CalendarDays size={13} />
-                    {task.dueAt ? formatDate(task.dueAt) : 'Chưa có hạn'}
-                  </span>
-                </div>
-              </td>
-              <td className={cn('desktop-cell date-cell', task.isOverdue && 'overdue-text')}>
-                <span className="date-label">
-                  <CalendarDays size={15} />
-                  {formatDate(task.dueAt)}
-                </span>
-                {task.isOverdue && <small>Đã quá hạn</small>}
-              </td>
-              <td className="desktop-cell">
-                <PriorityBadge priority={task.priority} />
-              </td>
-              <td className="desktop-cell">
-                <StatusBadge status={task.status} />
-              </td>
-              <td className="desktop-cell">
-                <Link
-                  className="icon-button"
-                  to={'/tasks/' + task.id + '/edit'}
-                  state={{ returnTo: '/tasks' }}
-                  aria-label={'Chỉnh sửa: ' + task.title}
-                >
-                  <Pencil size={16} />
-                </Link>
-              </td>
-            </tr>
+            <TaskRow key={task.id} task={task} attention={attention} />
           ))}
         </tbody>
       </table>

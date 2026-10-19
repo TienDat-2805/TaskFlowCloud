@@ -16,6 +16,14 @@ const schema = z
       .transform((v) => v === 'true'),
     CLIENT_ORIGIN: z.url().transform((v) => new URL(v).origin),
     TRUST_PROXY: z.coerce.number().int().min(0).max(2).default(0),
+    TASKFLOW_V02_ENABLED: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((value) => value === 'true'),
+    REQUIRE_TASK_REVISION: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((value) => value === 'true'),
     LOG_LEVEL: z.enum(['silent', 'fatal', 'error', 'warn', 'info', 'debug']).default('info'),
   })
   .superRefine((env, ctx) => {
@@ -30,7 +38,9 @@ const schema = z
     }
   });
 
-export type AppConfig = z.infer<typeof schema>;
+type ParsedConfig = z.infer<typeof schema>;
+export type AppConfig = Omit<ParsedConfig, 'TASKFLOW_V02_ENABLED' | 'REQUIRE_TASK_REVISION'> &
+  Partial<Pick<ParsedConfig, 'TASKFLOW_V02_ENABLED' | 'REQUIRE_TASK_REVISION'>>;
 
 export function readConfig(): AppConfig {
   const parsed = schema.safeParse(process.env);

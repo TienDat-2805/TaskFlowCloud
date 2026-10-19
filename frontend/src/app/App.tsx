@@ -1,5 +1,13 @@
 import { lazy, Suspense, useEffect } from 'react';
-import { Navigate, Outlet, Route, Routes, useLocation, Link } from 'react-router-dom';
+import {
+  Navigate,
+  Outlet,
+  Route,
+  Routes,
+  useLocation,
+  Link,
+  type Location,
+} from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useUser, authKey } from '../features/auth';
@@ -23,6 +31,9 @@ const TaskFormPage = lazy(() =>
 const ProfilePage = lazy(() =>
   import('../pages/ProfilePage').then((module) => ({ default: module.ProfilePage })),
 );
+const TrashPage = lazy(() =>
+  import('../pages/TrashPage').then((module) => ({ default: module.TrashPage })),
+);
 function ProtectedRoute() {
   const { data: user, isPending, error, refetch } = useUser();
   const location = useLocation();
@@ -36,6 +47,13 @@ function ProtectedRoute() {
 }
 export function App() {
   const client = useQueryClient();
+  const location = useLocation();
+  const background = location.state?.backgroundLocation as Location | undefined;
+  const isForm = /^\/tasks\/(new|[a-f\d]{24}\/edit)$/.test(location.pathname);
+  const backgroundLocation =
+    isForm && background?.pathname?.startsWith('/') && !background.pathname.startsWith('//')
+      ? background
+      : undefined;
   useEffect(() => {
     const expired = () => {
       client.setQueryData(authKey, null);
@@ -47,7 +65,7 @@ export function App() {
   }, [client]);
   return (
     <Suspense fallback={<LoadingState full />}>
-      <Routes>
+      <Routes location={backgroundLocation ?? location}>
         <Route path="/login" element={<AuthPage />} />
         <Route path="/register" element={<AuthPage register />} />
         <Route element={<ProtectedRoute />}>
@@ -58,6 +76,7 @@ export function App() {
             <Route path="/tasks/new" element={<TaskFormPage />} />
             <Route path="/tasks/:id" element={<TaskDetailPage />} />
             <Route path="/tasks/:id/edit" element={<TaskFormPage />} />
+            <Route path="/trash" element={<TrashPage />} />
             <Route path="/profile" element={<ProfilePage />} />
           </Route>
         </Route>
@@ -75,6 +94,14 @@ export function App() {
           }
         />
       </Routes>
+      {backgroundLocation && (
+        <Routes>
+          <Route element={<ProtectedRoute />}>
+            <Route path="/tasks/new" element={<TaskFormPage modal />} />
+            <Route path="/tasks/:id/edit" element={<TaskFormPage modal />} />
+          </Route>
+        </Routes>
+      )}
     </Suspense>
   );
 }

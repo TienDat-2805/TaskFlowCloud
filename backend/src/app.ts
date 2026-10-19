@@ -10,6 +10,7 @@ import { ApiError, errorHandler } from './lib/errors.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { taskRoutes } from './modules/tasks/routes.js';
 import { dashboardRoutes } from './modules/dashboard/routes.js';
+import { requireAuth } from './middleware/auth.js';
 
 export function createApp(config: AppConfig) {
   const app = express();
@@ -86,7 +87,15 @@ export function createApp(config: AppConfig) {
     }),
   );
   app.use('/api/auth', authRoutes(config));
-  app.use('/api/tasks', taskRoutes);
+  app.get('/api/features', requireAuth, (_req, res) => {
+    res.json({
+      data: {
+        workflow: config.TASKFLOW_V02_ENABLED ?? false,
+        requireRevision: config.REQUIRE_TASK_REVISION ?? false,
+      },
+    });
+  });
+  app.use('/api/tasks', taskRoutes(config));
   app.use('/api/dashboard', dashboardRoutes);
   app.use((_req, _res) => {
     throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy đường dẫn.');

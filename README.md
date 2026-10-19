@@ -81,6 +81,72 @@ Frontend chuyển các yêu cầu `/api` tới backend ở cổng `4000`. Dùng 
 
 Dừng ứng dụng bằng `Ctrl+C`.
 
+## Workflow v0.2 và nâng cấp dữ liệu
+
+Các tính năng v0.2 gồm ba trạng thái, Quick Add, deadline theo ngày/múi giờ, bộ lọc kết hợp, sửa nhanh, Undo trong 7 giây, lịch sử hoạt động và thùng rác.
+
+`TASKFLOW_V02_ENABLED` và `REQUIRE_TASK_REVISION` mặc định là `false`. Khi tắt workflow, API giữ hành vi xóa trực tiếp của v0.1 và không nhận trạng thái `in_progress`. Frontend lấy khả năng hỗ trợ từ `/api/features`.
+
+Trước khi bật tính năng trên database đã có dữ liệu:
+
+1. Dừng các tiến trình ghi dữ liệu, tạo backup và thử khôi phục backup trên một database riêng.
+2. Kiểm tra `MONGODB_URI` đang trỏ đúng database cần nâng cấp. Chạy báo cáo chỉ đọc:
+
+   ```bash
+   npm run migrate:v02 -w backend -- --dry-run
+   ```
+
+3. Xử lý hết `anomalies` nếu có. Sau khi có backup đã kiểm chứng, thay `TEN_DATABASE` bằng tên database thực tế:
+
+   ```bash
+   npm run migrate:v02 -w backend -- --apply --confirm-database TEN_DATABASE --backup-confirmed
+   ```
+
+   Với Atlas hoặc hostname khác localhost, thêm `--allow-remote`. Cờ `--backup-confirmed` là xác nhận của người vận hành; script không tự tạo backup.
+
+4. Migration chỉ bổ sung field còn thiếu, giữ timestamp cũ và không tạo lịch sử quá khứ. Sau kiểm tra dữ liệu, script cài TTL cho task đã xóa và hết hạn; TTL không bảo đảm chạy đúng từng giây.
+5. Triển khai frontend/backend cùng phiên bản; đặt hai biến sau trong môi trường backend và khởi động lại:
+
+   ```dotenv
+   TASKFLOW_V02_ENABLED=true
+   REQUIRE_TASK_REVISION=true
+   ```
+
+   Với Docker development, chạy lại `docker compose -f compose.dev.yml up --build -d` để nhận cấu hình.
+
+Database mới chưa có task cũng chạy migration trước khi bật workflow để cài TTL. Trong Docker development, dùng `docker compose -f compose.dev.yml exec backend npm run migrate:v02 -w backend -- --dry-run`; lệnh apply tương tự với đúng tên database. Hostname `mongo` trong Compose cần `--allow-remote`.
+
+Khi rollback, dừng ghi, khôi phục backup vào database riêng, kiểm chứng rồi chuyển URI và cặp image frontend/backend về phiên bản tương ứng. Chỉ tắt feature flag không chuyển đổi task `in_progress` và không khôi phục dữ liệu đã bị TTL xóa. Tránh chạy backend v0.1 trên dữ liệu workflow chưa được chuyển đổi.
+
+### API workflow
+
+Các endpoint dùng phiên cookie đăng nhập. Yêu cầu ghi cần `Origin` khớp `CLIENT_ORIGIN` và JSON. Mỗi tài khoản chỉ truy cập task của chính mình.
+
+| Endpoint                               | Chức năng                                                       |
+| -------------------------------------- | --------------------------------------------------------------- |
+| `GET /api/features`                    | Khả năng hỗ trợ workflow và yêu cầu revision                    |
+| `GET /api/tasks`                       | Lọc trạng thái/ưu tiên/thời hạn, tìm kiếm, sắp xếp, phân trang  |
+| `GET /api/tasks/:id`                   | Chi tiết task đang hoạt động và lịch sử gần nhất                |
+| `PATCH /api/tasks/:id`                 | Cập nhật kèm `expectedRevision` hoặc `If-Match: "v7"`           |
+| `DELETE /api/tasks/:id`                | Chuyển vào thùng rác khi bật workflow                           |
+| `GET /api/tasks/trash`                 | Danh sách task đã xóa                                           |
+| `GET /api/tasks/trash/:id`             | Chi tiết và lịch sử task trong thùng rác                        |
+| `POST /api/tasks/:id/restore`          | Khôi phục task chưa hết hạn, kèm revision                       |
+| `DELETE /api/tasks/:id/permanent`      | Xóa vĩnh viễn task trong thùng rác, kèm revision                |
+| `GET /api/tasks/:id/activity?limit=50` | Lịch sử task đang hoạt động, mới nhất trước, tối đa 100 sự kiện |
+
+Query list hỗ trợ `status=all|active|pending|in_progress|completed`, `priority=all|low|medium|high`, `due=all|overdue|today|upcoming|no_due`, `search`, `sort`, `timeZone`, `page`, `limit`. Sort gồm `createdAt_desc`, `title_asc`, `dueAt_asc`, `dueAt_desc`, `priority_desc`, `attention`. Khoảng ngày tính theo múi giờ IANA, mặc định UTC. `upcoming` bắt đầu ngày mai và kéo dài 7 ngày lịch. Các điều kiện lọc kết hợp theo AND.
+
+Deadline gửi một trong ba dạng:
+
+```json
+{ "due": { "mode": "none" } }
+{ "due": { "mode": "date", "date": "2026-12-25", "timeZone": "Asia/Ho_Chi_Minh" } }
+{ "due": { "mode": "datetime", "at": "2026-12-25T17:00:00+07:00" } }
+```
+
+`dueAt` cũ vẫn được hỗ trợ; không gửi đồng thời với `due`. API trả revision mới và ETag sau cập nhật. Revision cũ trả `409 TASK_CONFLICT`, task không thuộc tài khoản trả `404`. PATCH không thay đổi dữ liệu giữ nguyên revision và lịch sử.
+
 ## Chạy bằng Docker
 
 Docker Compose development khởi chạy frontend, backend và **MongoDB local với volume riêng**. Cấu hình này dùng MongoDB trong container thay cho URI Atlas.
@@ -155,6 +221,15 @@ Smoke test đăng nhập bằng tài khoản mẫu, tạo/sửa/xóa một công
 | `npm run indexes -w backend` | Bổ sung index MongoDB                             |
 | `npm run start -w backend`   | Chạy backend sau khi build                        |
 
+## Kiểm thử trình duyệt
+
+```bash
+npx playwright install chromium
+npm run e2e -w frontend
+```
+
+Bộ kiểm thử tự khởi chạy ứng dụng ở cổng 5174, API ở 4011 và MongoDB tạm độc lập, không dùng database trong `.env`. Nó kiểm tra desktop 1440px/mobile 390px, form theo ngữ cảnh, dirty confirm, bộ lọc Back/Forward, Undo/409 và thùng rác. Kết quả và ảnh nằm trong `test-results/`, được bỏ qua bởi Git. Máy chạy test cần các cổng này trống.
+
 ## Triển khai production
 
 Cấu hình `APP_DOMAIN`, `MONGODB_URI` và `SESSION_SECRET` trong file môi trường riêng, ví dụ `.env.production`. Domain cần trỏ tới máy chủ và cổng `80/443` phải sẵn sàng.
@@ -177,6 +252,8 @@ Caddy xử lý HTTPS; Nginx phục vụ frontend và chuyển tiếp API tới b
 | `CLIENT_ORIGIN`                   | Origin frontend được phép gửi yêu cầu ghi               |
 | `COOKIE_SECURE`                   | `true` khi dùng HTTPS                                   |
 | `TRUST_PROXY`                     | `0` khi chạy trực tiếp; `2` với Caddy → Nginx → Express |
+| `TASKFLOW_V02_ENABLED`            | Bật workflow v0.2 sau migration (mặc định false)        |
+| `REQUIRE_TASK_REVISION`           | Yêu cầu revision khi sửa/xóa/khôi phục (mặc định false) |
 | `LOG_LEVEL`                       | Mức log của backend                                     |
 | `MONGODB_DNS_SERVERS`             | Tùy chọn: danh sách IP DNS phân cách bằng dấu phẩy      |
 | `SEED_EMAIL`, `SEED_PASSWORD`     | Thông tin tài khoản mẫu                                 |

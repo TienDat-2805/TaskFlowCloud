@@ -5,7 +5,17 @@ import hooks from 'eslint-plugin-react-hooks';
 import refresh from 'eslint-plugin-react-refresh';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/coverage/**', '**/node_modules/**', 'tmp/**'] },
+  {
+    ignores: [
+      '**/dist/**',
+      '**/coverage/**',
+      '**/node_modules/**',
+      '.cache/**',
+      'test-results/**',
+      'playwright-report/**',
+      'tmp/**',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

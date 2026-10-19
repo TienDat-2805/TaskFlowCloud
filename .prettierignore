@@ -3,4 +3,10 @@ dist
 coverage
 package-lock.json
 tmp
+.cache
+test-results
+playwright-report
+docs/*
+!docs/releases/
+TODO.md
 .env*
