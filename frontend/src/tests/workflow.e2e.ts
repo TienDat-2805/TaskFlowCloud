@@ -1,4 +1,27 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test as base, expect, type Page, type BrowserContext } from '@playwright/test';
+type AccountState = Awaited<ReturnType<BrowserContext['storageState']>>;
+const test = base.extend<object, { accountState: AccountState }>({
+  accountState: [
+    async ({ browser }, provide) => {
+      const context = await browser.newContext();
+      const response = await context.request.post('http://localhost:5174/api/auth/register', {
+        headers: { Origin: 'http://localhost:5174' },
+        data: {
+          name: 'Người kiểm thử',
+          email: 'browser-' + crypto.randomUUID() + '@example.com',
+          password: 'Browser-Test-Only!42',
+        },
+      });
+      expect(response.status()).toBe(201);
+      await provide(await context.storageState());
+      await context.close();
+    },
+    { scope: 'worker' },
+  ],
+  storageState: async ({ accountState }, provide) => {
+    await provide(accountState);
+  },
+});
 const origin = 'http://localhost:5174';
 async function create(page: Page, values: object = {}) {
   const result = await page.request.post('/api/tasks', {
@@ -9,15 +32,27 @@ async function create(page: Page, values: object = {}) {
   return (await result.json()).data;
 }
 test.beforeEach(async ({ page }) => {
-  const response = await page.request.post('/api/auth/register', {
-    headers: { Origin: origin },
-    data: {
-      name: 'Người kiểm thử',
-      email: 'browser-' + crypto.randomUUID() + '@example.com',
-      password: 'Browser-Test-Only!42',
-    },
-  });
-  expect(response.status()).toBe(201);
+  const active = await page.request.get('/api/tasks?limit=100');
+  for (const task of (await active.json()).data) {
+    expect(
+      (
+        await page.request.delete('/api/tasks/' + task.id, {
+          headers: { Origin: origin },
+          data: { expectedRevision: task.revision },
+        })
+      ).status(),
+    ).toBe(204);
+  }
+  const trash = await page.request.get('/api/tasks/trash?limit=100');
+  for (const task of (await trash.json()).data)
+    expect(
+      (
+        await page.request.delete('/api/tasks/' + task.id + '/permanent', {
+          headers: { Origin: origin },
+          data: { expectedRevision: task.revision },
+        })
+      ).status(),
+    ).toBe(204);
 });
 test('dashboard quick add and statistic deep links', async ({ page }, info) => {
   await create(page, {
@@ -276,4 +311,223 @@ test('Quick Add keeps input on failure and prevents same-frame double submission
     '/api/tasks?search=' + encodeURIComponent('Không tạo trùng'),
   );
   expect((await result.json()).pagination.total).toBe(1);
+});
+
+test('capability errors never fall back to destructive legacy semantics', async ({ page }) => {
+  const task = await create(page);
+  let fail = true;
+  await page.route('**/api/features', async (route) => {
+    if (fail)
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: { code: 'UNAVAILABLE', message: 'Chưa lấy được cấu hình máy chủ.' },
+        }),
+      });
+    else await route.continue();
+  });
+  await page.goto('/tasks/' + task.id);
+  await expect(
+    page.getByRole('heading', { name: 'Chưa thể xác định tính năng đang hỗ trợ' }),
+  ).toBeVisible();
+  await expect(page.getByText(/xóa vĩnh viễn/i)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Xóa', exact: true })).toHaveCount(0);
+  fail = false;
+  await page.getByRole('button', { name: 'Thử lại', exact: true }).click();
+  await expect(page.getByRole('heading', { name: task.title })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Chuyển vào thùng rác', exact: true }),
+  ).toBeVisible();
+});
+test('Quick Add supports priority and deadlines, view action and input refocus', async ({
+  page,
+}, info) => {
+  await page.goto('/tasks');
+  const input = page.getByRole('textbox', { name: 'Tên công việc tạo nhanh' });
+  await input.fill('Việc có deadline nhanh');
+  await expect(page.getByLabel('Ưu tiên tạo nhanh', { exact: true })).toBeVisible();
+  await page.getByLabel('Ưu tiên tạo nhanh', { exact: true }).selectOption('high');
+  await page.getByRole('button', { name: 'Thời hạn tạo nhanh', exact: true }).click();
+  const deadline = page.getByRole('dialog', { name: 'Thời hạn tạo nhanh' });
+  await deadline.getByRole('button', { name: 'Chỉ ngày', exact: true }).click();
+  await deadline.getByLabel('Ngày hết hạn', { exact: true }).fill('2026-12-27');
+  await deadline.getByLabel('Múi giờ', { exact: true }).fill('Asia/Ho_Chi_Minh');
+  await deadline.getByRole('button', { name: 'Áp dụng thời hạn', exact: true }).click();
+  expect((await (await page.request.get('/api/tasks')).json()).pagination.total).toBe(0);
+  await input.press('Enter');
+  await expect(
+    page.getByRole('link', { name: 'Việc có deadline nhanh', exact: true }),
+  ).toBeVisible();
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('');
+  const task = (await (await page.request.get('/api/tasks')).json()).data[0];
+  expect(task).toMatchObject({
+    priority: 'high',
+    dueMode: 'date',
+    dueDate: '2026-12-27',
+    dueAt: '2026-12-27T16:59:59.999Z',
+  });
+  await page.screenshot({ path: info.outputPath('quick-add-deadline.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Xem công việc', exact: true }).click();
+  await expect(page).toHaveURL('/tasks/' + task.id);
+});
+test('desktop quick edit leaves other rows interactive; mobile uses a sheet', async ({
+  page,
+}, info) => {
+  const first = await create(page, { title: 'Dòng vẫn tương tác' });
+  await create(page, { title: 'Popover đang mở' });
+  await page.goto('/tasks');
+  await page.getByRole('button', { name: 'Sửa nhanh: Popover đang mở', exact: true }).click();
+  const popover = page.getByRole('dialog', { name: 'Sửa nhanh công việc' });
+  await expect(popover).toBeVisible();
+  if (info.project.name === 'desktop') {
+    await expect(page.locator('.popover-backdrop')).toHaveCount(0);
+    await page.getByRole('checkbox', { name: 'Hoàn thành: Dòng vẫn tương tác' }).click();
+    await expect(popover).toHaveCount(0);
+    await expect(
+      page.getByRole('checkbox', { name: 'Hoàn thành: Dòng vẫn tương tác' }),
+    ).toBeChecked();
+    expect((await (await page.request.get('/api/tasks/' + first.id)).json()).data.status).toBe(
+      'completed',
+    );
+  } else {
+    await expect(page.locator('.popover-backdrop')).toBeVisible();
+    const box = await popover.boundingBox();
+    expect(Math.abs(box!.y + box!.height - page.viewportSize()!.height)).toBeLessThan(3);
+    await page.keyboard.press('Escape');
+    await expect(popover).toHaveCount(0);
+  }
+});
+test('dashboard keeps all five categories and separate today/overdue lists on mobile too', async ({
+  page,
+}, info) => {
+  const today = await page.evaluate(() => ({
+    date: new Intl.DateTimeFormat('sv-SE').format(new Date()),
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  }));
+  await create(page, { title: 'Đến hạn trong ngày', due: { mode: 'date', ...today } });
+  await create(page, {
+    title: 'Công việc trễ hạn',
+    dueAt: new Date(Date.now() - 60_000).toISOString(),
+  });
+  await page.goto('/dashboard');
+  await expect(page.locator('a.stat-card')).toHaveCount(5);
+  for (const card of await page.locator('a.stat-card').all()) await expect(card).toBeVisible();
+  await expect(
+    page
+      .getByRole('region', { name: 'Đến hạn hôm nay', exact: true })
+      .getByRole('link', { name: 'Đến hạn trong ngày', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole('region', { name: 'Công việc quá hạn', exact: true })
+      .getByRole('link', { name: 'Công việc trễ hạn', exact: true }),
+  ).toBeVisible();
+  await page.screenshot({ path: info.outputPath('dashboard-deadline-groups.png'), fullPage: true });
+  await page.locator('a.stat-card').nth(1).click();
+  await expect(page).toHaveURL(/status=pending/);
+});
+test('advanced form focuses the first invalid field', async ({ page }) => {
+  await page.goto('/tasks/new');
+  await page.getByRole('button', { name: 'Tạo công việc', exact: true }).click();
+  await expect(page.getByLabel('Tên công việc *')).toBeFocused();
+  await page.getByLabel('Tên công việc *').fill('Form cần ngày hợp lệ');
+  await page.getByRole('button', { name: 'Chỉ ngày', exact: true }).click();
+  await page.getByRole('button', { name: 'Tạo công việc', exact: true }).click();
+  await expect(page.getByLabel('Ngày hết hạn', { exact: true })).toBeFocused();
+});
+test('visible timer and BFCache refresh time-derived data; hidden tabs do not poll', async ({
+  page,
+}) => {
+  await page.clock.install({ time: new Date('2026-10-25T16:59:50Z') });
+  let stage = 0;
+  let requests = 0;
+  await page.route('**/api/dashboard/summary?*', async (route) => {
+    requests++;
+    await route.fulfill({
+      json: {
+        data: {
+          total: 3,
+          pending: 3,
+          inProgress: 0,
+          completed: 0,
+          remaining: 3,
+          overdue: stage,
+          dueToday: 0,
+          upcomingCount: 0,
+          withoutDeadline: 0,
+          completionRate: 0,
+          attention: [],
+          upcoming: [],
+          today: [],
+          overdueTasks: [],
+        },
+      },
+    });
+  });
+  await page.goto('/dashboard');
+  const overdue = page.locator('a.stat-card').last().locator('strong');
+  await expect(overdue).toHaveText('0');
+  stage = 1;
+  await page.clock.runFor(31_000);
+  await expect(overdue).toHaveText('1');
+  await expect(page.locator('.today')).toContainText('26 tháng 10');
+  await page.evaluate(() =>
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }),
+  );
+  const before = requests;
+  stage = 2;
+  await page.clock.runFor(31_000);
+  expect(requests).toBe(before);
+  await expect(overdue).toHaveText('1');
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+  });
+  await expect(overdue).toHaveText('2');
+  await page
+    .locator('.sidebar-nav a[href="/tasks"], .bottom-nav a[href="/tasks"]')
+    .filter({ visible: true })
+    .click();
+  const live = await create(page, { title: 'Xuất hiện sau đồng hồ' });
+  await page.clock.runFor(31_000);
+  await expect(page.getByRole('link', { name: live.title, exact: true })).toBeVisible();
+});
+
+test('failed capability refresh preserves an open dirty form and blocks workflow controls until retry', async ({
+  page,
+}) => {
+  const task = await create(page);
+  let fail = false;
+  await page.route('**/api/features', async (route) => {
+    if (fail)
+      await route.fulfill({
+        status: 503,
+        json: { error: { code: 'UNAVAILABLE', message: 'Tạm lỗi cấu hình' } },
+      });
+    else await route.continue();
+  });
+  await page.goto('/tasks/' + task.id + '/edit');
+  await page.getByLabel('Tên công việc *').fill('Nội dung chưa lưu vẫn còn');
+  await page.clock.install();
+  await page.clock.runFor(61_000);
+  fail = true;
+  const failedResponse = page.waitForResponse(
+    (response) => response.url().endsWith('/api/features') && response.status() === 503,
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')));
+  await failedResponse;
+  await page.clock.runFor(2000);
+  await expect(
+    page.getByText('Chưa thể cập nhật cấu hình tính năng. Các thao tác xóa đang tạm khóa.', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByLabel('Tên công việc *')).toHaveValue('Nội dung chưa lưu vẫn còn');
+  await expect(page.getByRole('button', { name: 'Đang làm', exact: true })).toBeDisabled();
+  fail = false;
+  await page.getByRole('button', { name: 'Thử lại cấu hình', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Đang làm', exact: true })).toBeEnabled();
+  await expect(page.getByLabel('Tên công việc *')).toHaveValue('Nội dung chưa lưu vẫn còn');
 });

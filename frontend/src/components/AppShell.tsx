@@ -16,6 +16,7 @@ import { useUser, authKey } from '../features/auth';
 import { api, body } from '../lib/api';
 import { Button } from './ui';
 import { useWorkflow } from '../features/workflow';
+import { useTaskClock } from '../features/taskClock';
 
 const nav = [
   { to: '/dashboard', title: 'Tổng quan', icon: LayoutDashboard },
@@ -39,7 +40,8 @@ export function AppShell() {
   const client = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
-  const { enabled } = useWorkflow();
+  const { enabled, error: workflowError, retry } = useWorkflow();
+  const now = useTaskClock();
   const visibleNav = nav.filter((item) => item.to !== '/trash' || enabled);
   const logout = useMutation({
     mutationFn: () => api('/api/auth/logout', { method: 'POST', body: body({}) }),
@@ -110,7 +112,7 @@ export function AppShell() {
                 weekday: 'long',
                 day: 'numeric',
                 month: 'long',
-              }).format(new Date())}
+              }).format(now)}
             </span>
             <Link to="/profile" className="avatar" aria-label="Tài khoản cá nhân">
               {user?.name.slice(0, 1).toUpperCase()}
@@ -118,6 +120,14 @@ export function AppShell() {
           </div>
         </header>
         <main id="main-content" className="page-content">
+          {workflowError && (
+            <div className="capability-notice" role="alert">
+              <p>Chưa thể cập nhật cấu hình tính năng. Các thao tác xóa đang tạm khóa.</p>
+              <Button variant="secondary" onClick={() => void retry()}>
+                Thử lại cấu hình
+              </Button>
+            </div>
+          )}
           <Outlet />
         </main>
         <footer className="page-footer">

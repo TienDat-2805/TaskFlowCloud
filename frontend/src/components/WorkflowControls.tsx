@@ -1,10 +1,10 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import type { Task, TaskStatus, TaskPriority } from '../types';
+import type { DueInput, Task, TaskStatus, TaskPriority } from '../types';
 import { api, ApiError, body } from '../lib/api';
 import {
   deadlinePayload,
@@ -16,7 +16,8 @@ import {
 } from '../lib/workflow';
 import { refreshTasks, useTaskMutation } from '../features/tasks';
 import { useWorkflow } from '../features/workflow';
-import { Button, Field, FormDialog, Input } from './ui';
+import { Button, Field, Input } from './ui';
+import { ContextPopover } from './ContextPopover';
 
 export function Choices<T extends string>({
   label,
@@ -60,19 +61,28 @@ export function StatusChoices({
   onChange: (v: TaskStatus) => void;
   disabled?: boolean;
 }) {
-  const { enabled } = useWorkflow();
-  const values = Object.entries(statuses).filter(([key]) => enabled || key !== 'in_progress') as [
-    TaskStatus,
-    string,
-  ][];
+  const { enabled, ready, error, retry } = useWorkflow();
+  const values = Object.entries(statuses).filter(
+    ([key]) => enabled !== false || key !== 'in_progress',
+  ) as [TaskStatus, string][];
   return (
-    <Choices
-      label="Trạng thái"
-      value={value}
-      values={values}
-      onChange={onChange}
-      disabled={disabled}
-    />
+    <>
+      <Choices
+        label="Trạng thái"
+        value={value}
+        values={values}
+        onChange={onChange}
+        disabled={disabled || !ready}
+      />
+      {error && (
+        <div className="capability-notice" role="alert">
+          <p>Chưa thể cập nhật cấu hình trạng thái.</p>
+          <Button type="button" variant="secondary" onClick={() => void retry()}>
+            Thử lại tính năng
+          </Button>
+        </div>
+      )}
+    </>
   );
 }
 export function PriorityChoices({
@@ -97,10 +107,14 @@ export function PriorityChoices({
 export function DeadlineFields({
   value,
   onChange,
+  idPrefix,
 }: {
   value: DeadlineValues;
   onChange: (v: DeadlineValues) => void;
+  idPrefix?: string;
 }) {
+  const generatedId = useId();
+  const prefix = idPrefix ?? generatedId;
   return (
     <div className="deadline-fields">
       <Choices
@@ -115,24 +129,24 @@ export function DeadlineFields({
       />
       {value.mode === 'date' && (
         <div className="form-row">
-          <Field label="Ngày hết hạn" htmlFor="due-date">
+          <Field label="Ngày hết hạn" htmlFor={prefix + '-date'}>
             <Input
-              id="due-date"
+              id={prefix + '-date'}
               type="date"
               required
               value={value.date}
               onChange={(e) => onChange({ ...value, date: e.target.value })}
             />
           </Field>
-          <Field label="Múi giờ" htmlFor="due-zone">
+          <Field label="Múi giờ" htmlFor={prefix + '-zone'}>
             <Input
-              id="due-zone"
-              list="time-zones"
+              id={prefix + '-zone'}
+              list={prefix + '-zones'}
               required
               value={value.timeZone}
               onChange={(e) => onChange({ ...value, timeZone: e.target.value })}
             />
-            <datalist id="time-zones">
+            <datalist id={prefix + '-zones'}>
               <option value={timeZone()} />
               <option value="Asia/Ho_Chi_Minh" />
               <option value="UTC" />
@@ -144,11 +158,11 @@ export function DeadlineFields({
       {value.mode === 'datetime' && (
         <Field
           label="Ngày và giờ hết hạn"
-          htmlFor="due-at"
+          htmlFor={prefix + '-at'}
           hint={'Múi giờ trên thiết bị: ' + timeZone()}
         >
           <Input
-            id="due-at"
+            id={prefix + '-at'}
             type="datetime-local"
             required
             value={value.at}
@@ -235,82 +249,173 @@ export function ConfirmAction({
     </AlertDialog.Root>
   );
 }
+
+function QuickDeadline({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: DeadlineValues;
+  onChange: (value: DeadlineValues) => void;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [error, setError] = useState('');
+  return (
+    <ContextPopover
+      open={open}
+      onOpenChange={(next) => {
+        if (next) {
+          setDraft(value);
+          setError('');
+        }
+        setOpen(next);
+      }}
+      trigger={
+        <button
+          type="button"
+          className="quick-deadline"
+          aria-label="Thời hạn tạo nhanh"
+          disabled={disabled}
+        >
+          {value.mode === 'none'
+            ? 'Không hạn'
+            : value.mode === 'date'
+              ? value.date
+              : 'Có ngày và giờ'}
+        </button>
+      }
+      title="Thời hạn tạo nhanh"
+      description="Chọn deadline trước khi tạo công việc."
+    >
+      <form
+        className="popover-form"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          try {
+            deadlinePayload(draft);
+            onChange(draft);
+            setOpen(false);
+          } catch (err) {
+            setError((err as Error).message);
+          }
+        }}
+      >
+        <DeadlineFields value={draft} onChange={setDraft} />
+        {error && (
+          <p className="field-error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="dialog-actions">
+          <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
+            Hủy
+          </Button>
+          <Button>Áp dụng thời hạn</Button>
+        </div>
+      </form>
+    </ContextPopover>
+  );
+}
 export function QuickAdd() {
   const submitting = useRef(false);
+  const input = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('medium');
+  const [deadline, setDeadline] = useState(deadlineValues());
+  const [error, setError] = useState('');
   const client = useQueryClient();
+  const navigate = useNavigate();
   const create = useMutation({
-    mutationFn: (name: string) =>
-      api('/api/tasks', {
+    mutationFn: ({ name, due }: { name: string; due: DueInput }) =>
+      api<{ data: Task }>('/api/tasks', {
         method: 'POST',
-        body: body({ title: name, priority, due: { mode: 'none' } }),
+        body: body({ title: name, priority, due }),
       }),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       setTitle('');
-      toast.success('Đã tạo công việc');
+      toast.success('Đã tạo công việc', {
+        duration: 6000,
+        action: { label: 'Xem công việc', onClick: () => navigate('/tasks/' + result.data.id) },
+      });
       await refreshTasks(client);
     },
     onSettled: () => {
       submitting.current = false;
     },
   });
+  useEffect(() => {
+    if (create.isSuccess && !create.isPending) input.current?.focus();
+  }, [create.isSuccess, create.isPending]);
   return (
     <form
       className="surface quick-add"
       aria-label="Tạo nhanh công việc"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (title.trim() && !submitting.current) {
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!title.trim() || submitting.current) return;
+        try {
+          const due = deadlinePayload(deadline);
+          setError('');
           submitting.current = true;
-          create.mutate(title.trim());
+          create.mutate({ name: title.trim(), due });
+        } catch (err) {
+          setError((err as Error).message);
         }
       }}
     >
       <Plus size={16} />
       <Input
+        ref={input}
         aria-label="Tên công việc tạo nhanh"
         maxLength={120}
         value={title}
-        onChange={(e) => setTitle(e.target.value)}
+        onChange={(event) => setTitle(event.target.value)}
         placeholder="Nhập công việc mới và nhấn Enter…"
         disabled={create.isPending}
         required
       />
-      <select
-        aria-label="Ưu tiên tạo nhanh"
-        className="quick-priority"
-        value={priority}
-        onChange={(e) => setPriority(e.target.value as TaskPriority)}
-        disabled={create.isPending}
-      >
-        {Object.entries(priorities).map(([v, label]) => (
-          <option key={v} value={v}>
-            {label}
-          </option>
-        ))}
-      </select>
-      <span className="quick-no-due">Không thời hạn</span>
-      <Button disabled={create.isPending || !title.trim()}>
-        {create.isPending ? 'Đang tạo…' : 'Thêm ↵'}
-      </Button>
-      {create.error && (
+      <div className="quick-add-options">
+        <select
+          aria-label="Ưu tiên tạo nhanh"
+          className="quick-priority"
+          value={priority}
+          onChange={(event) => setPriority(event.target.value as TaskPriority)}
+          disabled={create.isPending}
+        >
+          {Object.entries(priorities).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <QuickDeadline value={deadline} onChange={setDeadline} disabled={create.isPending} />
+        <Button disabled={create.isPending || !title.trim()}>
+          {create.isPending ? 'Đang tạo…' : 'Thêm ↵'}
+        </Button>
+      </div>
+      {(error || create.error) && (
         <p role="alert" className="field-error">
-          {create.error.message}
+          {error || create.error?.message}
         </p>
       )}
     </form>
   );
 }
-export function QuickEdit({
-  task,
+function QuickEditForm({
+  task: source,
   onClose,
-  anchor,
+  onConfirmChange,
 }: {
   task: Task;
   onClose: () => void;
-  anchor: { top: number; left: number };
+  onConfirmChange: (open: boolean) => void;
 }) {
+  const [task] = useState(source);
   const [priority, setPriority] = useState(task.priority);
   const [status, setStatus] = useState(task.status);
   const [deadline, setDeadline] = useState(deadlineValues(task));
@@ -318,16 +423,19 @@ export function QuickEdit({
   const mutation = useTaskMutation();
   const client = useQueryClient();
   const location = useLocation();
-  const { enabled } = useWorkflow();
+  const { enabled, ready } = useWorkflow();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const deletion = useMutation({
-    mutationFn: () =>
-      api('/api/tasks/' + task.id, {
+    mutationFn: () => {
+      if (!ready) throw new Error('Vui lòng tải lại cấu hình tính năng trước khi xóa.');
+      return api('/api/tasks/' + task.id, {
         method: 'DELETE',
         body: body({ expectedRevision: task.revision }),
-      }),
+      });
+    },
     onSuccess: async () => {
       setConfirmDelete(false);
+      onConfirmChange(false);
       onClose();
       await refreshTasks(client);
       toast.success(enabled ? 'Đã chuyển vào thùng rác' : 'Đã xóa công việc');
@@ -335,19 +443,12 @@ export function QuickEdit({
     onError: (error) => toast.error(error.message),
   });
   return (
-    <FormDialog
-      title="Sửa nhanh công việc"
-      description={task.title}
-      contentClassName="quick-edit-dialog"
-      style={anchor}
-      onClose={() => {
-        if (!mutation.isPending && !deletion.isPending) onClose();
-      }}
-    >
+    <>
       <form
-        className="task-form"
-        onSubmit={(e) => {
-          e.preventDefault();
+        className="popover-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (mutation.isPending) return;
           try {
             setError('');
             const due = deadlinePayload(deadline);
@@ -357,9 +458,11 @@ export function QuickEdit({
           }
         }}
       >
-        <StatusChoices value={status} onChange={setStatus} disabled={mutation.isPending} />
-        <PriorityChoices value={priority} onChange={setPriority} disabled={mutation.isPending} />
-        <DeadlineFields value={deadline} onChange={setDeadline} />
+        <fieldset disabled={mutation.isPending || deletion.isPending}>
+          <StatusChoices value={status} onChange={setStatus} />
+          <PriorityChoices value={priority} onChange={setPriority} />
+          <DeadlineFields value={deadline} onChange={setDeadline} />
+        </fieldset>
         {(error || mutation.error) && (
           <p className="field-error" role="alert">
             {error || mutation.error?.message}
@@ -391,21 +494,28 @@ export function QuickEdit({
         <button
           type="button"
           className="text-link danger-text"
-          onClick={() => setConfirmDelete(true)}
+          disabled={!ready || mutation.isPending}
+          onClick={() => {
+            setConfirmDelete(true);
+            onConfirmChange(true);
+          }}
         >
           Xóa công việc
         </button>
       </div>
       <ConfirmAction
         open={confirmDelete}
-        onOpenChange={setConfirmDelete}
+        onOpenChange={(open) => {
+          setConfirmDelete(open);
+          onConfirmChange(open);
+        }}
         title={enabled ? 'Chuyển vào thùng rác?' : 'Xóa công việc?'}
         description={
           enabled ? 'Bạn có thể khôi phục trong tối đa 30 ngày.' : 'Công việc sẽ bị xóa vĩnh viễn.'
         }
         action={enabled ? 'Chuyển vào thùng rác' : 'Xóa công việc'}
         onConfirm={() => deletion.mutate()}
-        pending={deletion.isPending}
+        pending={deletion.isPending || !ready}
       />
       <ConflictNotice
         error={deletion.error}
@@ -414,6 +524,26 @@ export function QuickEdit({
           onClose();
         }}
       />
-    </FormDialog>
+    </>
+  );
+}
+export function QuickEdit({ task, trigger }: { task: Task; trigger: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <ContextPopover
+      open={open}
+      onOpenChange={(next) => {
+        if (!confirming) setOpen(next);
+      }}
+      trigger={trigger}
+      title="Sửa nhanh công việc"
+      description={task.title}
+      preventDismiss={confirming}
+    >
+      {open && (
+        <QuickEditForm task={task} onClose={() => setOpen(false)} onConfirmChange={setConfirming} />
+      )}
+    </ContextPopover>
   );
 }

@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { MoreHorizontal, Play, Pause } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -10,7 +9,6 @@ import { ConflictNotice, QuickEdit } from './WorkflowControls';
 import { useWorkflow } from '../features/workflow';
 function TaskRow({ task, attention }: { task: Task; attention: boolean }) {
   const mutation = useTaskMutation();
-  const [editing, setEditing] = useState<{ top: number; left: number } | null>(null);
   const { enabled } = useWorkflow();
   const location = useLocation();
   const client = useQueryClient();
@@ -77,21 +75,18 @@ function TaskRow({ task, attention }: { task: Task; attention: boolean }) {
             {task.status === 'in_progress' ? <Pause size={15} /> : <Play size={15} />}
           </button>
         )}
-        <button
-          className="icon-button"
-          aria-label={'Sửa nhanh: ' + task.title}
-          onClick={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            setEditing({
-              top: Math.max(12, Math.min(rect.bottom + 8, window.innerHeight - 600)),
-              left: Math.max(12, rect.right - 400),
-            });
-          }}
-          disabled={mutation.isPending}
-        >
-          <MoreHorizontal size={18} />
-        </button>
-        {editing && <QuickEdit task={task} anchor={editing} onClose={() => setEditing(null)} />}
+        <QuickEdit
+          task={task}
+          trigger={
+            <button
+              className="icon-button"
+              aria-label={'Sửa nhanh: ' + task.title}
+              disabled={mutation.isPending}
+            >
+              <MoreHorizontal size={18} />
+            </button>
+          }
+        />
       </td>
     </tr>
   );

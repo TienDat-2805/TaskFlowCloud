@@ -27,6 +27,7 @@ function TaskForm({
   reload: () => void;
 }) {
   const client = useQueryClient();
+  const form = useRef<HTMLFormElement>(null);
   const [editingTask] = useState(task);
   const [title, setTitle] = useState(task?.title ?? '');
   const [description, setDescription] = useState(task?.description ?? '');
@@ -66,6 +67,19 @@ function TaskForm({
     },
   });
   useEffect(() => {
+    if (mutation.isPending || !Object.keys(errors).length) return;
+    const first = Object.keys(errors)[0];
+    const id =
+      first === 'due'
+        ? /múi giờ/i.test(errors.due)
+          ? 'due-zone'
+          : deadline.mode === 'date'
+            ? 'due-date'
+            : 'due-at'
+        : first;
+    form.current?.querySelector<HTMLElement>('[id="' + id + '"]')?.focus();
+  }, [errors, mutation.isPending, deadline.mode]);
+  useEffect(() => {
     const unload = (event: BeforeUnloadEvent) => {
       if (dirty && !allowLeave.current) event.preventDefault();
     };
@@ -78,6 +92,7 @@ function TaskForm({
   const content = (
     <>
       <form
+        ref={form}
         className="task-form"
         noValidate
         onSubmit={(e) => {
@@ -116,13 +131,15 @@ function TaskForm({
               className="input textarea"
               rows={3}
               maxLength={2000}
+              aria-invalid={!!errors.description}
+              aria-describedby={errors.description ? 'description-error' : undefined}
               placeholder="Mô tả công việc…"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
           </Field>
           <StatusChoices value={status} onChange={setStatus} />
-          <DeadlineFields value={deadline} onChange={setDeadline} />
+          <DeadlineFields value={deadline} onChange={setDeadline} idPrefix="due" />
           {errors.due && (
             <p className="field-error" role="alert">
               {errors.due}
@@ -216,7 +233,7 @@ export function TaskFormPage({ modal = false }: { modal?: boolean }) {
       }
     });
   };
-  if (id && query.isPending) return <LoadingState />;
+  if (id && query.isPending) return <LoadingState variant="form" />;
   if (id && query.error && !snapshot)
     return <ErrorState error={query.error} retry={() => void query.refetch()} />;
   return (

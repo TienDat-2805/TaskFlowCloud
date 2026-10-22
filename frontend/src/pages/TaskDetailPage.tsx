@@ -27,7 +27,7 @@ export function TaskDetailPage() {
   const client = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
-  const { enabled } = useWorkflow();
+  const { enabled, ready } = useWorkflow();
   const [confirm, setConfirm] = useState(false);
   const query = useQuery({
     queryKey: ['tasks', 'detail', id],
@@ -36,11 +36,13 @@ export function TaskDetailPage() {
   });
   const mutation = useTaskMutation();
   const deletion = useMutation({
-    mutationFn: (task: Task) =>
-      api('/api/tasks/' + id, {
+    mutationFn: (task: Task) => {
+      if (!ready) throw new Error('Vui lòng tải lại cấu hình tính năng trước khi xóa.');
+      return api('/api/tasks/' + id, {
         method: 'DELETE',
         body: body({ expectedRevision: task.revision ?? 0 }),
-      }),
+      });
+    },
     onSuccess: async () => {
       setConfirm(false);
       client.removeQueries({ queryKey: ['tasks', 'detail', id] });
@@ -77,7 +79,7 @@ export function TaskDetailPage() {
               Sửa công việc
             </Link>
           </Button>
-          <Button variant="secondary" onClick={() => setConfirm(true)}>
+          <Button variant="secondary" onClick={() => setConfirm(true)} disabled={!ready}>
             {enabled ? 'Chuyển vào thùng rác' : 'Xóa'}
           </Button>
         </div>
@@ -160,7 +162,7 @@ export function TaskDetailPage() {
         }
         action={enabled ? 'Chuyển vào thùng rác' : 'Xóa công việc'}
         onConfirm={() => deletion.mutate(task)}
-        pending={deletion.isPending}
+        pending={deletion.isPending || !ready}
       />
     </>
   );

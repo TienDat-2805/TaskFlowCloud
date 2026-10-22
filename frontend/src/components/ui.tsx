@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, CSSProperties } from 'react';
+import type { ButtonHTMLAttributes, ComponentProps, ReactNode, CSSProperties } from 'react';
 import { useState } from 'react';
 import { Slot } from '@radix-ui/react-slot';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
@@ -30,7 +30,7 @@ export function Button({
   const Component = asChild ? Slot : 'button';
   return <Component className={cn(buttonVariants({ variant }), className)} {...props} />;
 }
-export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
+export function Input({ className, ...props }: ComponentProps<'input'>) {
   return <input className={cn('input', className)} {...props} />;
 }
 export function Field({
@@ -75,11 +75,37 @@ export function StatusBadge({ status }: { status: TaskStatus }) {
     </span>
   );
 }
-export function LoadingState({ full = false }: { full?: boolean }) {
+export function LoadingState({
+  full = false,
+  variant = 'page',
+}: {
+  full?: boolean;
+  variant?: 'page' | 'dashboard' | 'list' | 'form';
+}) {
   return (
-    <div className={cn('loading-state', full && 'full-state')} role="status" aria-label="Đang tải">
-      <LoaderCircle className="animate-spin" size={26} />
-      <span>Đang tải dữ liệu…</span>
+    <div
+      className={cn('loading-state skeleton-state', full && 'full-state', 'skeleton-' + variant)}
+      role="status"
+      aria-label="Đang tải"
+      aria-busy="true"
+    >
+      <span className="sr-only">Đang tải dữ liệu…</span>
+      <div aria-hidden="true">
+        <div className="skeleton-line skeleton-heading" />
+        <div className="skeleton-line" />
+        {variant === 'dashboard' && (
+          <div className="skeleton-cards">
+            {Array.from({ length: 5 }, (_, index) => (
+              <div key={index} className="skeleton-block" />
+            ))}
+          </div>
+        )}
+        <div className="skeleton-panel">
+          {Array.from({ length: variant === 'form' ? 5 : 4 }, (_, index) => (
+            <div key={index} className="skeleton-line" />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

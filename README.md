@@ -230,6 +230,21 @@ npm run e2e -w frontend
 
 Bộ kiểm thử tự khởi chạy ứng dụng ở cổng 5174, API ở 4011 và MongoDB tạm độc lập, không dùng database trong `.env`. Nó kiểm tra desktop 1440px/mobile 390px, form theo ngữ cảnh, dirty confirm, bộ lọc Back/Forward, Undo/409 và thùng rác. Kết quả và ảnh nằm trong `test-results/`, được bỏ qua bởi Git. Máy chạy test cần các cổng này trống.
 
+## Xác minh nâng cấp bằng Docker Compose
+
+Cần Docker đang chạy và Compose từ 2.24.4. Chạy từ thư mục repository:
+
+```bash
+npm run verify:compose -w backend
+npm run verify:compose -w backend -- --production
+```
+
+Mỗi lệnh tạo project Compose, database, tài khoản và volume riêng, dùng cổng local trống; không lấy URI hoặc secret từ `.env`. Bộ kiểm tra thực hiện backup bằng `mongodump`, restore sang database khác bằng `mongorestore`, so sánh dữ liệu/index, migration dry-run/apply/idempotence rồi mới bật hai cờ workflow trên database test.
+
+Sau đó kiểm tra đăng nhập, deadline theo ngày, sửa trạng thái, 409, phân quyền hai tài khoản, thùng rác/khôi phục/xóa vĩnh viễn, persistence sau restart, health 503/200 và log không chứa credential/cookie. Script dọn container, volume, network và cấu hình tạm khi kết thúc. Báo cáo chỉ chứa tên bước và kết quả trong `test-results/compose-development.json` hoặc `test-results/compose-production.json`, được bỏ qua bởi Git.
+
+Chế độ `--production` kiểm tra image production qua Nginx trên HTTP local với cấu hình test. Nó không kiểm chứng Caddy/HTTPS, chứng chỉ, AWS hoặc database Atlas thật. Trước khi bật workflow trên database đang dùng, vẫn thực hiện backup, kiểm tra restore và các bước migration ở phần nâng cấp dữ liệu.
+
 ## Triển khai production
 
 Cấu hình `APP_DOMAIN`, `MONGODB_URI` và `SESSION_SECRET` trong file môi trường riêng, ví dụ `.env.production`. Domain cần trỏ tới máy chủ và cổng `80/443` phải sẵn sàng.

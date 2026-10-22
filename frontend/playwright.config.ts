@@ -6,7 +6,12 @@ export default defineConfig({
   outputDir: '../test-results/browser',
   timeout: 30_000,
   workers: 1,
-  use: { baseURL: 'http://localhost:5174', trace: 'retain-on-failure' },
+  use: {
+    baseURL: 'http://localhost:5174',
+    trace: 'retain-on-failure',
+    locale: 'vi-VN',
+    timezoneId: 'Asia/Ho_Chi_Minh',
+  },
   projects: [
     { name: 'desktop', use: { browserName: 'chromium', viewport: { width: 1440, height: 1000 } } },
     {

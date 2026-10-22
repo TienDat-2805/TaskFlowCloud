@@ -1,12 +1,48 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
-import { timeZone } from '../lib/workflow';
-import type { Summary } from '../types';
+import { timeZone, deadlineLabel } from '../lib/workflow';
+import type { Summary, Task } from '../types';
 import { ErrorState, LoadingState } from '../components/ui';
 import { NewTaskButton } from '../components/AppShell';
 import { TaskTable } from '../components/TaskTable';
 import { QuickAdd } from '../components/WorkflowControls';
+function DeadlineGroup({
+  title,
+  tasks,
+  to,
+  empty,
+}: {
+  title: string;
+  tasks: Task[];
+  to: string;
+  empty: string;
+}) {
+  return (
+    <section className="surface dashboard-deadline-group" aria-label={title}>
+      <div className="section-heading">
+        <h2>{title}</h2>
+        <Link className="text-link" to={to}>
+          Xem tất cả →
+        </Link>
+      </div>
+      {tasks.length ? (
+        <ul className="deadline-task-list">
+          {tasks.map((task) => (
+            <li key={task.id}>
+              <Link to={'/tasks/' + task.id}>{task.title}</Link>
+              <span className={task.isOverdue ? 'overdue-text' : 'muted'}>
+                {deadlineLabel(task)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="section-empty">{empty}</p>
+      )}
+    </section>
+  );
+}
 export function DashboardPage() {
   const zone = timeZone();
   const summary = useQuery({
@@ -15,7 +51,7 @@ export function DashboardPage() {
       (await api<{ data: Summary }>('/api/dashboard/summary?timeZone=' + encodeURIComponent(zone)))
         .data,
   });
-  if (summary.isPending) return <LoadingState />;
+  if (summary.isPending) return <LoadingState variant="dashboard" />;
   if (summary.error)
     return <ErrorState error={summary.error} retry={() => void summary.refetch()} />;
   const data = summary.data;
@@ -82,6 +118,20 @@ export function DashboardPage() {
           </p>
           <progress max={100} value={data.completionRate} aria-label="Tiến độ hoàn thành" />
         </aside>
+      </div>
+      <div className="dashboard-deadline-groups">
+        <DeadlineGroup
+          title="Đến hạn hôm nay"
+          tasks={data.today ?? []}
+          to="/tasks?status=active&due=today&sort=dueAt_asc"
+          empty="Không có công việc đến hạn hôm nay."
+        />
+        <DeadlineGroup
+          title="Công việc quá hạn"
+          tasks={data.overdueTasks ?? []}
+          to="/tasks?status=active&due=overdue&sort=attention"
+          empty="Không có công việc quá hạn."
+        />
       </div>
     </>
   );

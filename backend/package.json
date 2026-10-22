@@ -13,7 +13,8 @@
     "indexes": "tsx scripts/indexes.ts",
     "db:check": "tsx scripts/check-db.ts",
     "smoke": "tsx scripts/smoke.ts",
-    "migrate:v02": "tsx scripts/migrate-v02.ts"
+    "migrate:v02": "tsx scripts/migrate-v02.ts",
+    "verify:compose": "node scripts/verify-compose.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

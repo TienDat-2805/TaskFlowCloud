@@ -35,3 +35,7 @@ jobs:
         run: docker build -f backend/Dockerfile -t taskflow/backend:ci .
       - name: Build frontend image
         run: docker build -f frontend/Dockerfile -t taskflow/frontend:ci .
+      - name: Verify Compose development rollout and persistence
+        run: npm run verify:compose -w backend
+      - name: Verify production artifacts with isolated Compose
+        run: npm run verify:compose -w backend -- --production

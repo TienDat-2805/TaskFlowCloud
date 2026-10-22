@@ -229,7 +229,7 @@ export function TasksPage() {
       )}
       <section className="surface tasks-panel" aria-busy={tasks.isFetching}>
         {tasks.isPending ? (
-          <LoadingState />
+          <LoadingState variant="list" />
         ) : tasks.error ? (
           <ErrorState error={tasks.error} retry={() => void tasks.refetch()} />
         ) : tasks.data.data.length ? (

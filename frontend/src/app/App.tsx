@@ -11,6 +11,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useUser, authKey } from '../features/auth';
+import { useWorkflow } from '../features/workflow';
 import { AppShell } from '../components/AppShell';
 import { Button, ErrorState, LoadingState } from '../components/ui';
 const AuthPage = lazy(() =>
@@ -36,9 +37,20 @@ const TrashPage = lazy(() =>
 );
 function ProtectedRoute() {
   const { data: user, isPending, error, refetch } = useUser();
+  const workflow = useWorkflow(!!user);
   const location = useLocation();
   if (isPending) return <LoadingState full />;
   if (error) return <ErrorState error={error} retry={() => void refetch()} />;
+  if (user && !workflow.known) {
+    if (workflow.error)
+      return (
+        <div className="capability-error">
+          <h1>Chưa thể xác định tính năng đang hỗ trợ</h1>
+          <ErrorState error={workflow.error} retry={() => void workflow.retry()} />
+        </div>
+      );
+    return <LoadingState full />;
+  }
   return user ? (
     <Outlet />
   ) : (
