@@ -10,14 +10,14 @@ concurrency:
   cancel-in-progress: true
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: .cache/mongodb-binaries
           key: mongo-test-${{ runner.os }}-8
@@ -31,6 +31,24 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Test desktop and mobile workflows
         run: npm run e2e -w frontend
+  compose:
+    needs: check
+    # Temporary MongoDB 8/kernel workaround: SERVER-121912 and SERVER-136848.
+    # Revisit before the Ubuntu 22.04 runner retires on 2027-04-17.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - name: Record Docker platform
+        run: |
+          uname -r
+          docker info --format '{{.KernelVersion}}'
+          docker compose version
+      - run: npm ci
       - name: Build backend image
         run: docker build -f backend/Dockerfile -t taskflow/backend:ci .
       - name: Build frontend image
