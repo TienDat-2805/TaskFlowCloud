@@ -6,6 +6,7 @@ import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { mkdir, writeFile, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { formatDiagnostic } from './compose-diagnostics.mjs';
 
 const execute = promisify(execFile);
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -149,6 +150,15 @@ services:
 `;
 const alice = { cookie: '' };
 const bob = { cookie: '' };
+function diagnostic(value) {
+  return formatDiagnostic(value, [
+    secret,
+    password,
+    environment.MONGODB_URI,
+    alice.cookie,
+    bob.cookie,
+  ]);
+}
 async function call(account, route, method = 'GET', data) {
   const response = await fetch(origin + route, {
     method,
@@ -187,7 +197,16 @@ try {
   await saveEnv();
   await writeFile(join(work, 'override.yml'), override);
   await check('isolated Compose startup', async () => {
-    await compose('up', '--build', '-d', 'mongo', 'backend', 'frontend');
+    phase = 'pull MongoDB image';
+    console.log('Pulling MongoDB image...');
+    await compose('pull', 'mongo');
+    phase = 'build application images';
+    console.log('Building application images locally...');
+    await compose('build', 'backend', 'frontend');
+    phase = 'start isolated containers';
+    console.log('Starting isolated containers...');
+    await compose('up', '--no-build', '--pull', 'never', '-d', 'mongo', 'backend', 'frontend');
+    phase = 'wait for application health';
     await healthy();
   });
   await check('sessions and flags disabled before migration', async () => {
@@ -377,6 +396,20 @@ try {
 } catch (error) {
   report.failureCode = error.code ?? error.name;
   console.error('Verification error category: ' + report.failureCode);
+  report.diagnostic = diagnostic(
+    [error.message, error.stdout, error.stderr].filter(Boolean).join('\n'),
+  );
+  console.error(report.diagnostic);
+  for (const args of [
+    ['ps', '--all'],
+    ['logs', '--no-color', '--tail', '40', 'mongo', 'backend', 'frontend'],
+  ]) {
+    try {
+      console.error(diagnostic(await compose(...args)));
+    } catch {
+      console.error('Additional Compose diagnostics unavailable.');
+    }
+  }
   report.passed = false;
   report.failedAt = phase;
   console.error(
