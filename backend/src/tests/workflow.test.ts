@@ -333,21 +333,28 @@ describe('trash and owner isolation', () => {
 
 describe('frozen-time list and dashboard agreement', () => {
   it('keeps bucket boundaries, AND filters, ranking, pagination and dashboard counts consistent', async () => {
+    // MongoDB TTL uses the real clock. Stay within the current UTC day so the
+    // shared login sessions cannot expire when this process restores real time.
+    const now = new Date(vi.getRealSystemTime());
+    now.setUTCHours(5, 0, 0, 0); // Noon in Asia/Ho_Chi_Minh, with fixed bucket boundaries.
+    const hour = 3_600_000;
+    const day = 24 * hour;
+    const at = (offset: number) => new Date(now.getTime() + offset).toISOString();
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-10-25T05:00:00Z'));
+    vi.setSystemTime(now);
     const fixtures = [
-      { title: 'Old overdue', dueAt: '2026-10-24T04:00:00Z', priority: 'low' },
+      { title: 'Old overdue', dueAt: at(-25 * hour), priority: 'low' },
       {
         title: 'New overdue',
-        dueAt: '2026-10-25T04:59:59.999Z',
+        dueAt: at(-1),
         priority: 'high',
         status: 'in_progress',
       },
-      { title: 'Today now', dueAt: '2026-10-25T05:00:00Z' },
-      { title: 'Today end', dueAt: '2026-10-25T16:59:59.999Z' },
-      { title: 'Upcoming start', dueAt: '2026-10-25T17:00:00Z' },
-      { title: 'Upcoming end', dueAt: '2026-11-01T16:59:59.999Z' },
-      { title: 'Later', dueAt: '2026-11-01T17:00:00Z' },
+      { title: 'Today now', dueAt: at(0) },
+      { title: 'Today end', dueAt: at(12 * hour - 1) },
+      { title: 'Upcoming start', dueAt: at(12 * hour) },
+      { title: 'Upcoming end', dueAt: at(7 * day + 12 * hour - 1) },
+      { title: 'Later', dueAt: at(7 * day + 12 * hour) },
       { title: 'No due progress', status: 'in_progress', priority: 'high' },
       { title: 'No due pending' },
       { title: 'Done old', status: 'completed', dueAt: '2020-01-01T00:00:00Z' },
@@ -401,6 +408,10 @@ describe('frozen-time list and dashboard agreement', () => {
       [...ranked.body.data, next.body.data[0]].map((task: { id: string }) => task.id),
     );
     expect((await alice.get('/api/tasks?timeZone=Invalid%2FZone')).status).toBe(422);
+    vi.useRealTimers();
+    // The frozen-time case must not invalidate authentication in later tests.
+    expect((await alice.get('/api/auth/me')).status).toBe(200);
+    expect((await bob.get('/api/auth/me')).status).toBe(200);
   });
 });
 
