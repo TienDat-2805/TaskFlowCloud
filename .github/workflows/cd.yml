@@ -127,6 +127,20 @@ jobs:
             echo 'current=false' >> "$GITHUB_OUTPUT"
             echo 'Deployment skipped: main advanced while this release was waiting.' >> "$GITHUB_STEP_SUMMARY"
           fi
+      
+      - name: Connect to EC2 through Tailscale
+        if: steps.source.outputs.current == 'true'
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          ping: 100.100.236.95
+
+      - name: Verify private SSH connection
+        if: steps.source.outputs.current == 'true'
+        run: nc -z -w 10 100.100.236.95 22
+
       - name: Update EC2 and verify the public application
         id: remote
         if: steps.source.outputs.current == 'true'
