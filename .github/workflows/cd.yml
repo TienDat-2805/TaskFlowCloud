@@ -127,7 +127,7 @@ jobs:
             echo 'current=false' >> "$GITHUB_OUTPUT"
             echo 'Deployment skipped: main advanced while this release was waiting.' >> "$GITHUB_STEP_SUMMARY"
           fi
-      
+
       - name: Connect to EC2 through Tailscale
         if: steps.source.outputs.current == 'true'
         uses: tailscale/github-action@v4
