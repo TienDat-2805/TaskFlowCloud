@@ -1,0 +1,184 @@
+name: CD
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: taskflow-production
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      current: ${{ steps.source.outputs.current }}
+      backend-image: ${{ steps.names.outputs.backend }}@${{ steps.backend.outputs.digest }}
+      frontend-image: ${{ steps.names.outputs.frontend }}@${{ steps.frontend.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Require the latest tested main commit
+        id: source
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          tip="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [[ "$SOURCE_SHA" != "$tip" ]]; then
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+            echo 'Skipped: main has advanced beyond this CI run.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Name the release images
+        id: names
+        if: steps.source.outputs.current == 'true'
+        env:
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          namespace="ghcr.io/${REPOSITORY,,}"
+          echo "backend=$namespace/backend" >> "$GITHUB_OUTPUT"
+          echo "frontend=$namespace/frontend" >> "$GITHUB_OUTPUT"
+          echo "tag=sha-$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v4
+        if: steps.source.outputs.current == 'true'
+      - uses: docker/setup-buildx-action@v4
+        if: steps.source.outputs.current == 'true'
+      - uses: docker/login-action@v4
+        if: steps.source.outputs.current == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish backend
+        id: backend
+        if: steps.source.outputs.current == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: backend/Dockerfile
+          target: production
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.names.outputs.backend }}:${{ steps.names.outputs.tag }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.event.workflow_run.head_sha }}
+      - name: Publish frontend
+        id: frontend
+        if: steps.source.outputs.current == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: frontend/Dockerfile
+          target: production
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.names.outputs.frontend }}:${{ steps.names.outputs.tag }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.event.workflow_run.head_sha }}
+      - name: Record published release
+        if: steps.source.outputs.current == 'true'
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          BACKEND: ${{ steps.names.outputs.backend }}@${{ steps.backend.outputs.digest }}
+          FRONTEND: ${{ steps.names.outputs.frontend }}@${{ steps.frontend.outputs.digest }}
+          CD_ENABLED: ${{ vars.CD_ENABLED }}
+        run: |
+          printf 'Commit: `%s`\n\nBackend: `%s`\n\nFrontend: `%s`\n' \
+            "$SOURCE_SHA" "$BACKEND" "$FRONTEND" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$CD_ENABLED" != 'true' ]]; then
+            echo 'Images published. EC2 deployment is disabled (CD_ENABLED is not true).' >> "$GITHUB_STEP_SUMMARY"
+          fi
+  deploy:
+    needs: publish
+    if: needs.publish.outputs.current == 'true' && vars.CD_ENABLED == 'true'
+    runs-on: ${{ vars.DEPLOY_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Recheck main after environment approval
+        id: source
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          tip="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [[ "$SOURCE_SHA" == "$tip" ]]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+            echo 'Deployment skipped: main advanced while this release was waiting.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Update EC2 and verify the public application
+        id: remote
+        if: steps.source.outputs.current == 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          DEPLOY_PROJECT: ${{ vars.DEPLOY_PROJECT }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          DEPLOY_URL: ${{ vars.DEPLOY_URL }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          BACKEND_IMAGE: ${{ needs.publish.outputs.backend-image }}
+          FRONTEND_IMAGE: ${{ needs.publish.outputs.frontend-image }}
+        run: |
+          : "${DEPLOY_PATH:=/opt/taskflowcloud}"
+          : "${DEPLOY_PROJECT:=taskflow-cloud}"
+          : "${DEPLOY_PORT:=22}"
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$DEPLOY_PATH" =~ ^/[a-zA-Z0-9_./-]+$ && "$DEPLOY_PATH" != / ]]
+          [[ "/${DEPLOY_PATH#/}/" != */../* && "/${DEPLOY_PATH#/}/" != */./* ]]
+          [[ "$DEPLOY_PROJECT" =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]]
+          [[ "$DEPLOY_PORT" =~ ^[0-9]{1,5}$ && "$DEPLOY_PORT" -gt 0 && "$DEPLOY_PORT" -le 65535 ]]
+          [[ "$DEPLOY_URL" =~ ^https://[a-zA-Z0-9.-]+(:[0-9]{1,5})?/?$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$BACKEND_IMAGE" =~ ^ghcr.io/[a-z0-9._/-]+/backend@sha256:[0-9a-f]{64}$ ]]
+          [[ "$FRONTEND_IMAGE" =~ ^ghcr.io/[a-z0-9._/-]+/frontend@sha256:[0-9a-f]{64}$ ]]
+          [[ -n "$DEPLOY_SSH_KEY" && -n "$DEPLOY_KNOWN_HOSTS" ]]
+          ssh_dir="$RUNNER_TEMP/taskflow-ssh"
+          mkdir -p "$ssh_dir"
+          chmod 700 "$ssh_dir"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$ssh_dir/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          chmod 600 "$ssh_dir/key" "$ssh_dir/known_hosts"
+          options=(-i "$ssh_dir/key" -p "$DEPLOY_PORT"
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+            -o "UserKnownHostsFile=$ssh_dir/known_hosts" -o ConnectTimeout=15
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=5)
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          incoming="$DEPLOY_PATH/incoming/$SOURCE_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          tar -czf - compose.prod.yml infra/caddy/Caddyfile infra/deploy/deploy.py |
+            ssh "${options[@]}" "$target" \
+              "test -d '$DEPLOY_PATH' && test -f '$DEPLOY_PATH/.env.production' && mkdir -p '$incoming' && tar -xzf - -C '$incoming'"
+          ssh "${options[@]}" "$target" \
+            "python3 '$incoming/infra/deploy/deploy.py' deploy --root '$DEPLOY_PATH' --project '$DEPLOY_PROJECT' --url '$DEPLOY_URL' --revision '$SOURCE_SHA' --backend-image '$BACKEND_IMAGE' --frontend-image '$FRONTEND_IMAGE'"
+      - name: Remove runner SSH material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/taskflow-ssh/key" "$RUNNER_TEMP/taskflow-ssh/known_hosts"
+      - name: Record healthy deployment
+        if: steps.remote.outcome == 'success'
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: printf 'Deployed `%s`; public HTTPS, frontend and API checks passed.\n' "$SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"

@@ -256,6 +256,89 @@ docker compose --env-file .env.production -f compose.prod.yml up --build -d
 
 Caddy xử lý HTTPS; Nginx phục vụ frontend và chuyển tiếp API tới backend. Chỉ reverse proxy công khai cổng mạng. Cấu hình production bật secure cookie và kiểm tra origin HTTPS.
 
+## CI/CD với GHCR và EC2
+
+Workflow `CI` kiểm tra pull request và các lần push lên `main`. Sau khi toàn bộ CI thành công cho một lần push lên `main`, workflow `CD` build image production cho backend/frontend, hỗ trợ `linux/amd64` và `linux/arm64`, rồi publish lên GitHub Container Registry:
+
+```text
+ghcr.io/<owner>/<repository>/backend:sha-<commit>
+ghcr.io/<owner>/<repository>/frontend:sha-<commit>
+```
+
+Tên owner/repository được chuyển thành chữ thường. Deploy sử dụng **digest SHA-256** của từng image và kiểm tra nhãn revision khớp commit đã qua CI. Workflow bỏ qua PR, CI thất bại và commit đã bị `main` vượt qua. Các lần CD chạy tuần tự; một lần deploy đang chạy không bị lần push mới tự động hủy.
+
+### Chuẩn bị EC2 và mốc rollback
+
+EC2 cần Docker, Compose từ 2.24.4, Python 3.9 trở lên và tài khoản SSH có quyền chạy Docker. Domain HTTPS và kết nối database phải hoạt động. CD không khởi động/dừng EC2, chạy migration, seed dữ liệu hay thay đổi feature flags. Khi EC2 đang stop, giữ `CD_ENABLED=false`; việc publish image vẫn hoạt động.
+
+Trên EC2, chuẩn bị thư mục deploy do tài khoản SSH quản lý, ví dụ `/opt/taskflowcloud`. Đặt bản sao cấu hình runtime hiện có tại `/opt/taskflowcloud/.env.production`, với quyền `600`. File này chứa `APP_DOMAIN`, `MONGODB_URI`, `SESSION_SECRET` và các cờ workflow đang dùng. Mỗi release chỉ ghi đè cặp image qua biến môi trường của tiến trình Compose; secret tiếp tục được đọc từ file trên máy chủ.
+
+Với ứng dụng đã triển khai thủ công, bật EC2 và xác nhận ứng dụng chạy bình thường trước. Dùng script từ checkout có hỗ trợ CD để ghi nhận **commit và cấu hình thực sự đang chạy**:
+
+```bash
+python3 /path/to/cd-checkout/infra/deploy/deploy.py adopt \
+  --source /path/to/running-checkout \
+  --root /opt/taskflowcloud \
+  --project taskflow-cloud \
+  --url https://app.example.com \
+  --revision <full-running-commit-sha>
+```
+
+Thay các đường dẫn, domain và SHA trước khi chạy. `--project` phải trùng Compose project đang chạy; có thể xem bằng `docker compose ls`. Đây là điều kiện để giữ đúng container và volume Caddy hiện có. `--source` phải chứa `compose.prod.yml` và `infra/caddy/Caddyfile` của bản đang chạy. Script lưu image ID hiện có, sao chép hai file cấu hình và kiểm tra HTTPS/frontend/API; không thay container hoặc ghi dữ liệu ứng dụng. Nếu baseline đã tồn tại, lệnh từ chối ghi đè.
+
+Thư mục deploy lưu `state.json` (bản hiện tại/trước đó), `releases/` (cấu hình theo commit), `incoming/` (bundle nhận từ CD) và `.deploy.lock` khi có thao tác đang chạy. Các file này thuộc máy chủ; giữ lại image và release cũ để rollback. Nếu một tiến trình bị dừng cưỡng bức và để lại lock, kiểm tra không còn deploy đang chạy trước khi xóa thư mục lock rỗng.
+
+### Cấu hình GitHub
+
+Tạo GitHub Environment tên **`production`**, giới hạn deployment branch về `main`; có thể thêm required reviewers nếu muốn duyệt trước mỗi lần deploy. Thêm các **Environment secrets**:
+
+| Secret               | Nội dung                                                        |
+| -------------------- | --------------------------------------------------------------- |
+| `DEPLOY_HOST`        | Public DNS hoặc IPv4 của EC2                                    |
+| `DEPLOY_USER`        | Tài khoản Linux dùng để chạy Docker                             |
+| `DEPLOY_SSH_KEY`     | Nội dung private key SSH được phép truy cập EC2                 |
+| `DEPLOY_KNOWN_HOSTS` | Dòng host key đã xác minh cho hostname/IP và cổng SSH tương ứng |
+
+Xác minh fingerprint SSH qua kết nối quản trị tin cậy trước khi lưu known hosts. Workflow bắt buộc kiểm tra host key và chỉ lưu key tạm trên runner. Không thêm private key hoặc runtime env vào repository.
+
+Thêm các **Environment variables** trong `production`:
+
+| Variable         | Giá trị                                                                |
+| ---------------- | ---------------------------------------------------------------------- |
+| `DEPLOY_URL`     | HTTPS origin, ví dụ `https://app.example.com`                          |
+| `DEPLOY_PATH`    | Thư mục chứa `.env.production` và state; mặc định `/opt/taskflowcloud` |
+| `DEPLOY_PROJECT` | Compose project hiện có; mặc định `taskflow-cloud`                     |
+| `DEPLOY_PORT`    | Cổng SSH; mặc định `22`                                                |
+
+Thêm **Repository variable** `CD_ENABLED=true` khi baseline, quyền pull image và kết nối SSH đã sẵn sàng. Mặc định chưa có biến này thì CD chỉ publish image, job deploy bị skip. Vì điều kiện job được xét trước khi nạp Environment, đặt `CD_ENABLED` ở cấp repository, không đặt trong Environment.
+
+Runner phải kết nối được tới SSH của EC2 theo Security Group hiện có. Nếu chỉ cho phép IP cố định hoặc mạng nội bộ, có thể cấu hình **Repository variable** `DEPLOY_RUNNER` bằng nhãn runner Linux riêng có đường mạng phù hợp. Mặc định là runner GitHub-hosted `ubuntu-24.04`.
+
+Publish dùng `GITHUB_TOKEN` do Actions cấp và quyền `packages: write`; không cần thêm token publish riêng. Package GHCR mới tạo mặc định private: sau lần publish đầu, chọn visibility phù hợp trong package settings. Với package private, đăng nhập GHCR **trên EC2 bằng cùng tài khoản SSH** với token classic chỉ có quyền `read:packages`, dùng `docker login --password-stdin`. CD không chuyển token registry hoặc database secret qua SSH. Tham khảo [cấu hình Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+
+Sau khi cấu hình xong, bật EC2 và push một commit lên `main`, hoặc chạy lại workflow CD của commit mới nhất đã qua CI. Kiểm tra cả hai job `publish` và `deploy`: CD màu xanh nhưng job deploy bị skip chỉ xác nhận image đã publish. Summary của job deploy thành công ghi commit đã được kiểm tra qua HTTPS.
+
+### Health check và rollback
+
+Deploy pull đủ hai image, xác minh revision, chạy Compose bằng `--no-build --pull never --wait`, rồi kiểm tra công khai:
+
+- `/health` trả `200`, trạng thái `ok` và database `connected`.
+- `/` trả frontend có application root.
+- `/api/auth/me` trả `401` khi chưa đăng nhập, xác nhận API được chuyển tiếp đúng.
+
+Các kiểm tra không tạo tài khoản hoặc sửa database. Nếu cập nhật container hoặc smoke check thất bại, script khôi phục cấu hình/image của bản trước và kiểm tra lại; job vẫn báo lỗi để người vận hành biết release mới không thành công. Nếu rollback cũng lỗi, giữ trạng thái đã ghi trước đó để đối chiếu và báo cần kiểm tra máy chủ. Trạng thái release chỉ cập nhật sau khi health đạt, bằng một lần ghi file atomic.
+
+Rollback thủ công về bản tốt trước đó:
+
+```bash
+python3 /path/to/cd-checkout/infra/deploy/deploy.py rollback \
+  --root /opt/taskflowcloud \
+  --project taskflow-cloud \
+  --url https://app.example.com
+```
+
+Rollback container không hoàn tác migration database; các thay đổi schema cần kế hoạch backup/restore riêng. Kiểm tra logic deploy/rollback tại local bằng `python -m unittest discover -s infra/deploy -p 'test_*.py'`; CI cũng chạy bộ kiểm tra này.
+
 ## Tham khảo cấu hình
 
 | Biến                              | Ý nghĩa                                                 |

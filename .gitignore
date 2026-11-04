@@ -23,6 +23,7 @@
 !/.github/workflows/
 /.github/workflows/*
 !/.github/workflows/ci.yml
+!/.github/workflows/cd.yml
 
 /backend/*
 !/backend/package.json
@@ -47,6 +48,7 @@
 
 /infra/*
 !/infra/caddy/
+!/infra/deploy/
 /infra/caddy/*
 !/infra/caddy/Caddyfile
 
@@ -75,3 +77,5 @@ test-results/
 .DS_Store
 .idea/
 .vscode/
+__pycache__/
+*.pyc

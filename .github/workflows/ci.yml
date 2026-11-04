@@ -25,6 +25,8 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - run: npm run typecheck
+      - name: Test deployment and rollback logic
+        run: python3 -m unittest discover -s infra/deploy -p 'test_*.py'
       - run: npm test
       - run: npm run build
       - name: Install browser for end-to-end tests
