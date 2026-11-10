@@ -73,9 +73,9 @@ function TaskForm({
       first === 'due'
         ? /múi giờ/i.test(errors.due)
           ? 'due-zone'
-          : deadline.mode === 'date'
-            ? 'due-date'
-            : 'due-at'
+          : /giờ/i.test(errors.due)
+            ? 'due-time'
+            : 'due-date'
         : first;
     form.current?.querySelector<HTMLElement>('[id="' + id + '"]')?.focus();
   }, [errors, mutation.isPending, deadline.mode]);

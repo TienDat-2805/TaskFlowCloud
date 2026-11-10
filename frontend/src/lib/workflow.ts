@@ -24,32 +24,45 @@ export const taskDue = (task: Task): DueInput =>
 export interface DeadlineValues {
   mode: 'none' | 'date' | 'datetime';
   date: string;
-  at: string;
+  time: string;
   timeZone: string;
 }
-export const deadlineValues = (task?: Task): DeadlineValues => ({
-  mode: task?.dueMode ?? (task?.dueAt ? 'datetime' : 'none'),
-  date: task?.dueDate ?? '',
-  at: localDateInput(task?.dueAt ?? null),
-  timeZone: task?.dueTimeZone ?? timeZone(),
-});
+export function deadlineValues(task?: Task): DeadlineValues {
+  const local = localDateInput(task?.dueAt ?? null);
+  const date = task?.dueMode === 'date' ? task.dueDate : local.slice(0, 10);
+  return {
+    mode: task?.dueMode ?? (task?.dueAt ? 'datetime' : 'none'),
+    date: date ? date.split('-').reverse().join('/') : '',
+    time: local.slice(11, 16),
+    timeZone: task?.dueTimeZone ?? timeZone(),
+  };
+}
+export function parseDeadlineDate(value: string): string {
+  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value.trim());
+  if (!match) throw new Error('Nhập ngày theo dạng DD/MM/YYYY, ví dụ 25/12/2026.');
+  const iso = `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+  const date = new Date(iso + 'T12:00:00Z');
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== iso)
+    throw new Error('Ngày không tồn tại. Vui lòng kiểm tra ngày, tháng và năm.');
+  return iso;
+}
 export function deadlinePayload(values: DeadlineValues): DueInput {
   if (values.mode === 'none') return { mode: 'none' };
+  const isoDate = parseDeadlineDate(values.date);
   if (values.mode === 'date') {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(values.date)) throw new Error('Vui lòng chọn ngày hết hạn.');
     try {
       new Intl.DateTimeFormat('vi-VN', { timeZone: values.timeZone }).format();
     } catch {
       throw new Error('Múi giờ không hợp lệ.');
     }
-    return { mode: 'date', date: values.date, timeZone: values.timeZone };
+    return { mode: 'date', date: isoDate, timeZone: values.timeZone };
   }
-  const date = new Date(values.at);
-  if (
-    !values.at ||
-    Number.isNaN(date.getTime()) ||
-    localDateInput(date.toISOString()) !== values.at
-  )
+  const time = values.time.trim();
+  if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(time))
+    throw new Error('Nhập giờ từ 00:00 đến 23:59 theo dạng HH:mm, ví dụ 17:30.');
+  const at = isoDate + 'T' + time.padStart(5, '0');
+  const date = new Date(at);
+  if (Number.isNaN(date.getTime()) || localDateInput(date.toISOString()) !== at)
     throw new Error('Ngày giờ không tồn tại trên thiết bị của bạn.');
   return { mode: 'datetime', at: date.toISOString(), timeZone: timeZone() };
 }

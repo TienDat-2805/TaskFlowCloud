@@ -39,10 +39,11 @@ export function ContextPopover({
       <Popover.Portal>
         <Popover.Content
           className={'context-popover' + (mobile ? ' mobile-action-sheet' : '')}
-          side="bottom"
-          align="end"
+          side={mobile ? 'bottom' : 'left'}
+          align={mobile ? 'end' : 'start'}
           sideOffset={8}
           collisionPadding={16}
+          sticky="always"
           aria-labelledby={id + '-title'}
           aria-describedby={id + '-description'}
           onInteractOutside={(event) => {
@@ -60,7 +61,7 @@ export function ContextPopover({
               </Button>
             </Popover.Close>
           </div>
-          {children}
+          <div className="popover-body">{children}</div>
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

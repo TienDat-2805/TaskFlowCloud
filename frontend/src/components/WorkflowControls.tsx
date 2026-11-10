@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { CalendarDays, Clock3, Globe2, Plus } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import type { DueInput, Task, TaskStatus, TaskPriority } from '../types';
@@ -115,6 +115,16 @@ export function DeadlineFields({
 }) {
   const generatedId = useId();
   const prefix = idPrefix ?? generatedId;
+  const setRelativeDate = (days: number) => {
+    const date = new Date();
+    date.setDate(date.getDate() + days);
+    onChange({
+      ...value,
+      date: [date.getDate(), date.getMonth() + 1, date.getFullYear()]
+        .map((part) => String(part).padStart(2, '0'))
+        .join('/'),
+    });
+  };
   return (
     <div className="deadline-fields">
       <Choices
@@ -127,48 +137,77 @@ export function DeadlineFields({
           ['datetime', 'Ngày + giờ'],
         ]}
       />
-      {value.mode === 'date' && (
-        <div className="form-row">
-          <Field label="Ngày hết hạn" htmlFor={prefix + '-date'}>
-            <Input
-              id={prefix + '-date'}
-              type="date"
-              required
-              value={value.date}
-              onChange={(e) => onChange({ ...value, date: e.target.value })}
-            />
-          </Field>
-          <Field label="Múi giờ" htmlFor={prefix + '-zone'}>
-            <Input
-              id={prefix + '-zone'}
-              list={prefix + '-zones'}
-              required
-              value={value.timeZone}
-              onChange={(e) => onChange({ ...value, timeZone: e.target.value })}
-            />
-            <datalist id={prefix + '-zones'}>
-              <option value={timeZone()} />
-              <option value="Asia/Ho_Chi_Minh" />
-              <option value="UTC" />
-              <option value="America/New_York" />
-            </datalist>
-          </Field>
+      {value.mode !== 'none' && (
+        <div className="deadline-editor">
+          <div className={'deadline-inputs' + (value.mode === 'datetime' ? ' with-time' : '')}>
+            <Field label="Ngày hết hạn" htmlFor={prefix + '-date'}>
+              <div className="deadline-text-input">
+                <CalendarDays size={18} aria-hidden="true" />
+                <Input
+                  id={prefix + '-date'}
+                  type="text"
+                  autoComplete="off"
+                  placeholder="DD/MM/YYYY"
+                  maxLength={10}
+                  required
+                  aria-describedby={prefix + '-date-hint'}
+                  value={value.date}
+                  onChange={(e) => onChange({ ...value, date: e.target.value })}
+                />
+              </div>
+              <p className="field-hint" id={prefix + '-date-hint'}>
+                Ngày / tháng / năm
+              </p>
+            </Field>
+            {value.mode === 'datetime' && (
+              <Field label="Giờ hết hạn" htmlFor={prefix + '-time'}>
+                <div className="deadline-text-input">
+                  <Clock3 size={18} aria-hidden="true" />
+                  <Input
+                    id={prefix + '-time'}
+                    type="text"
+                    autoComplete="off"
+                    placeholder="HH:mm"
+                    maxLength={5}
+                    required
+                    value={value.time}
+                    onChange={(e) => onChange({ ...value, time: e.target.value })}
+                  />
+                </div>
+              </Field>
+            )}
+          </div>
+          <div className="deadline-shortcuts" aria-label="Điền nhanh ngày hết hạn">
+            <button type="button" onClick={() => setRelativeDate(0)}>
+              Hôm nay
+            </button>
+            <button type="button" onClick={() => setRelativeDate(1)}>
+              Ngày mai
+            </button>
+          </div>
+          {value.mode === 'date' ? (
+            <Field label="Múi giờ" htmlFor={prefix + '-zone'}>
+              <Input
+                id={prefix + '-zone'}
+                list={prefix + '-zones'}
+                required
+                value={value.timeZone}
+                onChange={(e) => onChange({ ...value, timeZone: e.target.value })}
+              />
+              <datalist id={prefix + '-zones'}>
+                <option value={timeZone()} />
+                <option value="Asia/Ho_Chi_Minh" />
+                <option value="UTC" />
+                <option value="America/New_York" />
+              </datalist>
+            </Field>
+          ) : (
+            <p className="deadline-timezone">
+              <Globe2 size={14} aria-hidden="true" />
+              Múi giờ trên thiết bị: {timeZone()}
+            </p>
+          )}
         </div>
-      )}
-      {value.mode === 'datetime' && (
-        <Field
-          label="Ngày và giờ hết hạn"
-          htmlFor={prefix + '-at'}
-          hint={'Múi giờ trên thiết bị: ' + timeZone()}
-        >
-          <Input
-            id={prefix + '-at'}
-            type="datetime-local"
-            required
-            value={value.at}
-            onChange={(e) => onChange({ ...value, at: e.target.value })}
-          />
-        </Field>
       )}
     </div>
   );
@@ -446,6 +485,7 @@ function QuickEditForm({
     <>
       <form
         className="popover-form"
+        noValidate
         onSubmit={(event) => {
           event.preventDefault();
           if (mutation.isPending) return;
