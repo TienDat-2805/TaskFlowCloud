@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, Clock3, Globe2, Plus } from 'lucide-react';
+import { Clock3, Globe2, Plus } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import type { DueInput, Task, TaskStatus, TaskPriority } from '../types';
@@ -18,6 +18,7 @@ import { refreshTasks, useTaskMutation } from '../features/tasks';
 import { useWorkflow } from '../features/workflow';
 import { Button, Field, Input } from './ui';
 import { ContextPopover } from './ContextPopover';
+import { DateInput } from './DateInput';
 
 export function Choices<T extends string>({
   label,
@@ -115,9 +116,8 @@ export function DeadlineFields({
 }) {
   const generatedId = useId();
   const prefix = idPrefix ?? generatedId;
-  const setRelativeDate = (days: number) => {
+  const setToday = () => {
     const date = new Date();
-    date.setDate(date.getDate() + days);
     onChange({
       ...value,
       date: [date.getDate(), date.getMonth() + 1, date.getFullYear()]
@@ -141,20 +141,12 @@ export function DeadlineFields({
         <div className="deadline-editor">
           <div className={'deadline-inputs' + (value.mode === 'datetime' ? ' with-time' : '')}>
             <Field label="Ngày hết hạn" htmlFor={prefix + '-date'}>
-              <div className="deadline-text-input">
-                <CalendarDays size={18} aria-hidden="true" />
-                <Input
-                  id={prefix + '-date'}
-                  type="text"
-                  autoComplete="off"
-                  placeholder="DD/MM/YYYY"
-                  maxLength={10}
-                  required
-                  aria-describedby={prefix + '-date-hint'}
-                  value={value.date}
-                  onChange={(e) => onChange({ ...value, date: e.target.value })}
-                />
-              </div>
+              <DateInput
+                id={prefix + '-date'}
+                describedBy={prefix + '-date-hint'}
+                value={value.date}
+                onChange={(date) => onChange({ ...value, date })}
+              />
               <p className="field-hint" id={prefix + '-date-hint'}>
                 Ngày / tháng / năm
               </p>
@@ -178,11 +170,8 @@ export function DeadlineFields({
             )}
           </div>
           <div className="deadline-shortcuts" aria-label="Điền nhanh ngày hết hạn">
-            <button type="button" onClick={() => setRelativeDate(0)}>
+            <button type="button" onClick={setToday}>
               Hôm nay
-            </button>
-            <button type="button" onClick={() => setRelativeDate(1)}>
-              Ngày mai
             </button>
           </div>
           {value.mode === 'date' ? (

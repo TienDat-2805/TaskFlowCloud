@@ -100,7 +100,7 @@ export function AppShell() {
       <div className="app-main">
         <header className="topbar">
           <div className="topbar-context">
-            <strong>TASKFLOW CLOUD / v0.2</strong>
+            <strong>TASKFLOW CLOUD</strong>
             <p>Kế hoạch rõ ràng · Từng bước hoàn thành</p>
           </div>
           <div className="mobile-brand">

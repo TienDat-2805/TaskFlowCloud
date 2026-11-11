@@ -334,6 +334,32 @@ progress::-webkit-progress-value {
   min-width: 0;
   font-variant-numeric: tabular-nums;
 }
+.deadline-calendar-trigger {
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 34px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text-muted);
+}
+.deadline-calendar-trigger:hover {
+  color: var(--color-bg-brand);
+  background: var(--color-bg-brand-soft);
+}
+.deadline-native-calendar {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
 .deadline-shortcuts {
   display: flex;
   gap: 8px;

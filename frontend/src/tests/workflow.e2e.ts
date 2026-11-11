@@ -88,7 +88,11 @@ test('contextual create, date-only deadline and custom dirty confirmation', asyn
   await page.getByRole('alertdialog').getByRole('button', { name: 'Hủy' }).click();
   await expect(dialog.getByLabel('Tên công việc *')).toHaveValue('Deadline theo ngày');
   await dialog.getByRole('button', { name: 'Chỉ ngày' }).click();
-  await dialog.getByLabel('Ngày hết hạn', { exact: true }).fill('25/12/2026');
+  await dialog.getByLabel('Ngày hết hạn', { exact: true }).fill('24/12/2026');
+  await dialog.getByRole('button', { name: 'Chọn ngày trên lịch', exact: true }).click();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await expect(dialog.getByLabel('Ngày hết hạn', { exact: true })).toHaveValue('25/12/2026');
   await dialog.getByLabel('Múi giờ', { exact: true }).fill('Asia/Ho_Chi_Minh');
   await dialog.getByRole('button', { name: 'Cao', exact: true }).click();
   await page.screenshot({ path: info.outputPath('task-form.png'), fullPage: true });
@@ -156,6 +160,56 @@ test('keyboard date and 24-hour time validate before saving and reopen unchanged
   await expect(page).toHaveURL('/tasks/' + task.id);
   expect((await (await page.request.get('/api/tasks/' + task.id)).json()).data.dueAt).toBe(
     '2028-02-28T17:05:00.000Z',
+  );
+});
+
+test('calendar picks a date while time stays typed in create, edit and quick edit', async ({
+  page,
+}, info) => {
+  await page.goto('/tasks/new');
+  await page.getByLabel('Tên công việc *').fill('Công việc chọn ngày trên lịch');
+  await page.getByRole('button', { name: 'Ngày + giờ', exact: true }).click();
+  const date = page.getByLabel('Ngày hết hạn', { exact: true });
+  const time = page.getByLabel('Giờ hết hạn', { exact: true });
+  await time.fill('17:30');
+  await page.getByRole('button', { name: 'Hôm nay', exact: true }).click();
+  const today = await page.evaluate(() => new Intl.DateTimeFormat('en-GB').format(new Date()));
+  await expect(date).toHaveValue(today);
+  await expect(page.getByRole('button', { name: 'Ngày mai', exact: true })).toHaveCount(0);
+  await date.fill('25/12/2028');
+  await page.getByRole('button', { name: 'Chọn ngày trên lịch', exact: true }).click();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await expect(date).toHaveValue('26/12/2028');
+  await expect(time).toHaveValue('17:30');
+  await page.getByRole('button', { name: 'Tạo công việc', exact: true }).click();
+  await expect(page).toHaveURL('/tasks');
+  const task = (await (await page.request.get('/api/tasks')).json()).data[0];
+  expect(task.dueAt).toBe('2028-12-26T10:30:00.000Z');
+
+  await page.goto('/tasks/' + task.id + '/edit');
+  await page.getByRole('button', { name: 'Chọn ngày trên lịch', exact: true }).click();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await expect(date).toHaveValue('27/12/2028');
+  await expect(time).toHaveValue('17:30');
+  await page.getByRole('button', { name: 'Lưu thay đổi', exact: true }).click();
+  await expect(page).toHaveURL('/tasks/' + task.id);
+
+  await page.goto('/tasks');
+  await page.getByRole('button', { name: 'Sửa nhanh: ' + task.title, exact: true }).click();
+  const quickEdit = page.getByRole('dialog', { name: 'Sửa nhanh công việc' });
+  await quickEdit.getByRole('button', { name: 'Chọn ngày trên lịch', exact: true }).click();
+  await page.screenshot({ path: info.outputPath('quick-edit-calendar.png') });
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await expect(quickEdit).toBeVisible();
+  await expect(quickEdit.getByLabel('Ngày hết hạn', { exact: true })).toHaveValue('28/12/2028');
+  await expect(quickEdit.getByLabel('Giờ hết hạn', { exact: true })).toHaveValue('17:30');
+  await quickEdit.getByRole('button', { name: 'Lưu thay đổi', exact: true }).click();
+  await expect(quickEdit).toHaveCount(0);
+  expect((await (await page.request.get('/api/tasks/' + task.id)).json()).data.dueAt).toBe(
+    '2028-12-28T10:30:00.000Z',
   );
 });
 
@@ -453,7 +507,11 @@ test('Quick Add supports priority and deadlines, view action and input refocus',
   await page.getByRole('button', { name: 'Thời hạn tạo nhanh', exact: true }).click();
   const deadline = page.getByRole('dialog', { name: 'Thời hạn tạo nhanh' });
   await deadline.getByRole('button', { name: 'Chỉ ngày', exact: true }).click();
-  await deadline.getByLabel('Ngày hết hạn', { exact: true }).fill('27/12/2026');
+  await deadline.getByLabel('Ngày hết hạn', { exact: true }).fill('26/12/2026');
+  await deadline.getByRole('button', { name: 'Chọn ngày trên lịch', exact: true }).click();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await expect(deadline.getByLabel('Ngày hết hạn', { exact: true })).toHaveValue('27/12/2026');
   await deadline.getByLabel('Múi giờ', { exact: true }).fill('Asia/Ho_Chi_Minh');
   await deadline.getByRole('button', { name: 'Áp dụng thời hạn', exact: true }).click();
   expect((await (await page.request.get('/api/tasks')).json()).pagination.total).toBe(0);
